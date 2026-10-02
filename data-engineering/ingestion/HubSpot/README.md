@@ -20,6 +20,7 @@
 
 - HubSpot search is eventually consistent. An edit indexed after the overlap window is missed until the next full run.
 - GDPR-erased contacts and records archived more than 90 days ago are never flagged by an incremental run. Only a full run clears them.
+- When `OBJECTS` leaves out a source object, or a source table is unreadable, associations are merged instead of overwritten. Links deleted in HubSpot for the pairs that were refreshed are not removed until the next full run of all objects.
 - The table schemas are fixed. After a schema change, drop the tables and run a full load.
 - Requests run one at a time on the driver, and associations are re-read on every run, which is slow on large accounts.
 - CRM data holds personal data. The tables inherit the catalog's access controls.
