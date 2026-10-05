@@ -114,7 +114,7 @@ from oracle_ai_data_platform_connectors.rest.epm import (
 )
 
 # EPM_USERNAME MUST be in identity-domain form: tenancy.user@domain
-# (e.g. epmloaner622.first.last@oracle.com — the bare email returns 401)
+# (e.g. mytenancy.first.last@example.com — the bare email returns 401)
 session = http_basic_session(
     username=os.environ["EPM_USERNAME"],
     password=os.environ["EPM_PASSWORD"],
@@ -170,7 +170,7 @@ python3 ai/shared-plugin-content/oracle-ai-data-platform-workbench-spark-connect
 
 ```bash
 # Validate plugin shape
-python /Users/srangabh-new-mac/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py .
+python <path-to>/validate_plugin.py .   # the plugin-creator validator from your Codex install
 
 # Run unit tests (no live OCI calls)
 python -m pytest tests/ -v
