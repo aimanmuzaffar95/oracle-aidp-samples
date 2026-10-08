@@ -66,6 +66,7 @@ must run.
 | `G16_PSEUDO_COLUMN` | `_PARTITIONTIME`, `_PARTITIONDATE`, `_TABLE_SUFFIX`, wildcard tables | No Delta equivalent |
 | `G17_SCRIPTING` | `DECLARE`, `BEGIN…END`, `EXECUTE IMMEDIATE`, `SET`, `IF`, `LOOP`, `CALL`, ... and any multi-statement script | Not translated in 0.1 |
 | `G18_ML_AI_GEO` | `ML.*`, `AI.*`, `ST_*` | No equivalent |
+| `G97_LEGACY_SQL` | a view written in legacy SQL (checked in `migrate`) | Rewrite it in GoogleSQL first |
 | `G98_UNBALANCED` | unterminated quote, unbalanced parentheses | Cannot be read safely |
 
 ## Known gaps

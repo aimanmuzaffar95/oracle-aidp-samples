@@ -66,6 +66,16 @@ All notable changes to this project are documented here. Format loosely follows
   the AWS migrator does. Each tool runs the CLI. `publish` and `run` stay
   CLI-only because they change an AIDP workspace. Needs `pip install -e '.[mcp]'`
   (Python 3.10+, `mcp>=1.2,<2`).
+- Claude Code skill `gcp-aidp-migrator` (with `references/verbs.md`) and slash
+  commands `inventory`, `plan`, `migrate`, `verify`, `publish` and `run`.
+- README: what it does, a status table separating live-tested from offline-only,
+  translator coverage tables, safety posture, layout and roadmap. `TESTING.md`.
+- README **Setup**: the Google service account, what an administrator sets up once
+  in AIDP (catalog, cluster and connector JAR, credential, a least-privilege
+  migration identity), and this machine (aidp-cli, `~/.oci/config`, finding the IDs,
+  `.env`). The least-privilege grants are not yet tested with a restricted user.
+- `gcp-aidp-migrator-bootstrap` skill: a read-only readiness check, from the CLI to
+  the cluster's state, that reports shapes and results, never values.
 
 ### Changed
 - `G15_QUALIFY` is a rewrite, not a block: a subquery filtered on the
@@ -77,3 +87,4 @@ All notable changes to this project are documented here. Format loosely follows
 - The `.env` loader takes only `GCP_`, `GOOGLE_APPLICATION_CREDENTIALS`,
   `AIDP_` and `OCI_` keys, and reads the working directory's `.env`, then the
   plugin folder's.
+- `references/dialect-translation.md` lists `G97_LEGACY_SQL`.
