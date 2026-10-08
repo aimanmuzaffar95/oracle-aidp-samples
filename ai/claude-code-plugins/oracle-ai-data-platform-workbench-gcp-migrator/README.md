@@ -5,11 +5,12 @@ inventories a Google Cloud data estate centred on BigQuery, plans the mapping to
 AIDP, and (in later milestones) generates reviewable artifacts and copy jobs,
 verifies them, and publishes to AIDP on request.
 
-> **Work in progress (0.1, milestone M3).** `inventory` (live and fixture),
+> **Work in progress (0.1, milestone M4).** `inventory` (live and fixture),
 > `plan`, `migrate` and `verify` are built. Live inventory has been run against
 > a seeded sandbox project (BigQuery only: no billing, so no Cloud Storage,
-> scheduled queries or other services). The data-copy notebooks and `publish`
-> are not built yet. Full documentation arrives with M6.
+> scheduled queries or other services). The data-copy notebooks are generated
+> and tested on a local Spark 3.5 + Delta, not yet on an AIDP cluster. `publish`
+> is not built yet. Full documentation arrives with M6.
 
 ## Quick start (offline, no credentials)
 
@@ -78,6 +79,37 @@ every asset:
 > the tool knows about is wrong here", and review artifacts before running them in
 > production. REVIEW is the honest signal that something needs a human — a low
 > REVIEW count is not by itself evidence of a clean migration.
+
+## Copying the data
+
+`migrate` also writes four self-contained notebooks to `migrated/notebooks/`,
+which run on an AIDP cluster (the Snowflake migrator's pattern):
+
+| Notebook | Reads | Writes |
+|---|---|---|
+| `00_diagnose` | connector, credential, catalog | nothing; prints the connector's type for every column |
+| `01_structure` | the plan | schemas, empty Delta tables (each read back against the plan), views |
+| `02_copy_dataset` | one BigQuery dataset, table by table | rows; verifies counts, and with `counts+sums` exact decimal sums |
+| `03_reconcile` | plan, reports, catalog | `MIGRATION_REPORT.md` |
+
+Prerequisites: AIDP has no built-in BigQuery connector. Install the open-source
+Spark BigQuery connector as a **cluster library**, as a JAR file
+(`spark-bigquery-with-dependencies_2.12-<version>.jar`; AIDP cluster libraries
+take a JAR, not a Maven coordinate), on a Spark 3.5 / Scala 2.12 cluster. Store
+the read-only service account key, base64-encoded, in the **AIDP credential
+store** (default entry `gcp_bigquery_reader`, key `credentials_b64`). The
+notebooks read it there and never print it. The service account needs
+BigQuery Data Viewer, BigQuery Read Session User and BigQuery Job User.
+
+The copy reads tables only: reading a view or a query result makes the
+connector write a temporary table in BigQuery, so views are rebuilt from their
+translated SQL and materialized views from their query. Nothing is dropped:
+the default `skip-existing` mode leaves a table with rows untouched, and
+`overwrite` rewrites rows, never the table.
+
+> **Consistency.** Each table is copied at its own moment. If the source keeps
+> changing during the copy, the target is consistent per table but not across
+> tables. For a cutover, stop writers or copy from BigQuery table snapshots.
 
 The rule tables are [`references/type-mapping.md`](references/type-mapping.md)
 and [`references/dialect-translation.md`](references/dialect-translation.md).

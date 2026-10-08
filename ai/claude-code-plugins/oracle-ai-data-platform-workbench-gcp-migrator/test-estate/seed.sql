@@ -76,7 +76,8 @@ SELECT 1 AS id,
        INTERVAL 3 DAY AS dwell,
        RANGE(DATE '2026-01-01', DATE '2026-02-01') AS promo_window;
 
--- 5. Three views: simple (PASS), rewritable (REVIEW: caveats), blocked (QUALIFY).
+-- 5. Four views: simple (PASS), rewritable (REVIEW: caveats), QUALIFY (rewritten
+--    as a subquery), blocked (a geography function).
 CREATE OR REPLACE VIEW migration_test.v_simple AS
 SELECT id, email, country
 FROM migration_test.users
@@ -91,11 +92,15 @@ SELECT order_date,
 FROM migration_test.orders
 GROUP BY order_date;
 
-CREATE OR REPLACE VIEW migration_test.v_blocked AS
+CREATE OR REPLACE VIEW migration_test.v_latest_order AS
 SELECT *
 FROM migration_test.orders
 WHERE TRUE
 QUALIFY ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC) = 1;
+
+CREATE OR REPLACE VIEW migration_test.v_blocked AS
+SELECT order_id, ST_GEOGPOINT(-122.4, 37.8) AS pickup_point
+FROM migration_test.orders;
 
 -- 6. A materialized view (becomes a snapshot plus a refresh job, rule M01).
 CREATE MATERIALIZED VIEW IF NOT EXISTS migration_test.mv_daily_orders AS

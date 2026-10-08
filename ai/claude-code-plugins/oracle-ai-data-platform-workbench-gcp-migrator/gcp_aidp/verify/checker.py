@@ -54,6 +54,11 @@ def verify(report_path: Path) -> dict:
         if counts.get(status) != actual:
             raise ValueError(f"report count mismatch for {status!r}: says {counts.get(status)}, results hold {actual}")
 
+    for nb in report.get("notebooks", []):
+        problem = _artifact_problem(nb, report_path)
+        if problem:
+            raise ValueError(f"data-plane notebook {nb}: {problem}")
+
     summary = {"PASS": 0, "REVIEW": 0, "SKIP": 0, "FAIL": 0}
     rows = []
     for i, r in enumerate(results):

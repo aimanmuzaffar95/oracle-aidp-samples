@@ -30,8 +30,8 @@ show bigquery.view.sales.v_order_kpis source_sql
 bar; echo "  AFTER (Spark SQL on AIDP) — REVIEW: two rewrites carry a caveat"; bar
 cat "$OUT/migrated/views/sales.v_order_kpis.sql"
 
-bar; echo "  A blocked view (v_latest_order_per_customer) — never partially translated"; bar
-cat "$OUT/migrated/views/sales.v_latest_order_per_customer.sql"
+bar; echo "  A blocked view (v_all_app_events) — never partially translated"; bar
+cat "$OUT/migrated/views/logs.v_all_app_events.sql"
 
 bar; echo "  Artifacts at $OUT/"; bar
 echo "  → $OUT/plan.md                (approval document)"

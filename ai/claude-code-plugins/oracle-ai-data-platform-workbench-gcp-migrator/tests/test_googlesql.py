@@ -92,6 +92,44 @@ class Rewrites(unittest.TestCase):
         self.assertEqual((r.sql, r.status), (sql, "ok"))
 
 
+class Qualify(unittest.TestCase):
+    """G15: the rewrites are run on Spark 3.5 in test_spark_runtime."""
+
+    def test_window_condition_carries_the_row_as_a_struct(self):
+        r = t("SELECT * FROM `proj.sales.orders` WHERE TRUE\n"
+              "QUALIFY ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC) = 1")
+        self.assertEqual(r.sql, "SELECT _qualify_row.* FROM (SELECT struct(*) AS _qualify_row, "
+                                "(ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC) = 1) "
+                                "AS _qualify_keep FROM `cat`.`sales`.`orders` WHERE TRUE) AS _qualified "
+                                "WHERE _qualify_keep")
+        self.assertEqual((r.status, rules(r, "rewrite")), ("ok", {"G15_QUALIFY", "G01_REFERENCE"}))
+
+    def test_items_are_named_and_distinct_moves_out(self):
+        r = t("SELECT DISTINCT o.user_id, n AS n, COUNT(*) AS c FROM t o GROUP BY 1, 2 "
+              "QUALIFY RANK() OVER (ORDER BY COUNT(*) DESC) = 1 LIMIT 5")
+        self.assertTrue(r.sql.startswith("SELECT DISTINCT _qualify_row.* FROM (SELECT struct(o.user_id AS user_id, "
+                                         "n AS n, COUNT(*) AS c) AS _qualify_row"), r.sql)
+        self.assertTrue(r.sql.endswith("WHERE _qualify_keep LIMIT 5"), r.sql)
+
+    def test_condition_on_the_output_filters_it(self):
+        r = t("SELECT *, ROW_NUMBER() OVER (PARTITION BY k) AS rn FROM t QUALIFY rn = 1")
+        self.assertEqual(r.sql, "SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY k) AS rn FROM t) "
+                                "AS _qualified WHERE rn = 1")
+        self.assertEqual(r.status, "ok")
+
+    def test_nested_and_order_by(self):
+        r = t("WITH x AS (SELECT a FROM t QUALIFY ROW_NUMBER() OVER (ORDER BY a) = 1)\n"
+              "SELECT a FROM x QUALIFY RANK() OVER (ORDER BY a) <= 2 ORDER BY a")
+        self.assertNotRegex(r.sql, r"(?i)\bQUALIFY\b")
+        self.assertIn("(SELECT _qualify_row.* FROM (SELECT struct(a AS a)", r.sql)
+        self.assertTrue(r.sql.endswith("WHERE _qualify_keep ORDER BY a"), r.sql)
+        self.assertEqual(rules(r, "caveat"), {"G15_QUALIFY"})  # ORDER BY sees only the selected columns
+
+    def test_word_in_a_literal_or_comment_is_not_a_clause(self):
+        sql = "SELECT 'QUALIFY' AS q FROM t -- QUALIFY"
+        self.assertEqual(t(sql).sql, sql)
+
+
 class Flags(unittest.TestCase):
     def flagged(self, sql, rule):
         r = t(sql)
@@ -151,8 +189,16 @@ class Blocks(unittest.TestCase):
         self.assertIn(rule, rules(r, "block"))
         self.assertEqual((r.status, r.sql), ("blocked", sql))  # never partially translated
 
-    def test_G15_QUALIFY(self):
-        self.blocked("SELECT COUNTIF(a) FROM t QUALIFY ROW_NUMBER() OVER () = 1", "G15_QUALIFY")
+    def test_G15_QUALIFY_shapes_it_cannot_rewrite(self):
+        for sql, why in [
+            ("SELECT COUNTIF(a) FROM t QUALIFY ROW_NUMBER() OVER () = 1", "has no name"),
+            ("SELECT *, ROW_NUMBER() OVER () AS rn FROM t QUALIFY rn = 1 AND RANK() OVER () = 1", "alias rn"),
+            ("SELECT * EXCEPT (a) FROM t QUALIFY ROW_NUMBER() OVER () = 1", "SELECT * EXCEPT"),
+            ("SELECT a FROM t QUALIFY ROW_NUMBER() OVER w = 1 WINDOW w AS (ORDER BY a)", "followed by WINDOW"),
+            ("SELECT AS STRUCT a FROM t QUALIFY ROW_NUMBER() OVER () = 1", "SELECT AS STRUCT"),
+        ]:
+            self.blocked(sql, "G15_QUALIFY")
+            self.assertIn(why, t(sql).findings[0].detail, sql)
 
     def test_G16_PSEUDO_COLUMN(self):
         self.blocked("SELECT _PARTITIONTIME FROM t", "G16_PSEUDO_COLUMN")

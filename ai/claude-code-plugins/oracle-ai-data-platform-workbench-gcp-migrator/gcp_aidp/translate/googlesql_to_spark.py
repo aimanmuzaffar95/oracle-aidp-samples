@@ -221,9 +221,7 @@ def _blockers(s: _Sql) -> list[Finding]:
         out.append(Finding("G17_SCRIPTING", "block", f"scripting statement {s.word(statements[0][0])}"))
     for j in range(len(s.sig)):
         w, t = s.word(j), s.t(j)
-        if w == "QUALIFY":
-            out.append(Finding("G15_QUALIFY", "block", "QUALIFY: Spark 3.5 cannot parse it; needs a subquery"))
-        elif w in _PSEUDO_COLUMNS:
+        if w in _PSEUDO_COLUMNS:
             out.append(Finding("G16_PSEUDO_COLUMN", "block", f"{w} has no Delta equivalent"))
         elif t.kind == "ident" and "*" in t.text:
             out.append(Finding("G16_PSEUDO_COLUMN", "block", f"wildcard table {t.text}"))
@@ -232,6 +230,102 @@ def _blockers(s: _Sql) -> list[Finding]:
         elif w.startswith("ST_") and s.is_punct(j + 1, "("):
             out.append(Finding("G18_ML_AI_GEO", "block", f"{w}: geography function"))
     return list(dict.fromkeys(out))
+
+
+_QUALIFY_STOPS = {"ORDER", "LIMIT", "WINDOW", "UNION", "INTERSECT", "EXCEPT"}
+
+
+def _qualify(sql: str) -> tuple[str, list[Finding]]:
+    """G15: Spark 3.5 has no QUALIFY, so each one becomes a subquery filtered on its condition.
+
+    A condition with no window function filters the query's own output:
+        SELECT * FROM (<query>) AS _qualified WHERE <cond>
+    A condition with one is computed beside the row, which travels as a struct
+    so the output columns need not be known (`SELECT *` included):
+        SELECT _qualify_row.* FROM (SELECT struct(<items>) AS _qualify_row,
+            (<cond>) AS _qualify_keep FROM ...) AS _qualified WHERE _qualify_keep
+    Both are exact. A shape outside these is blocked, never guessed.
+    """
+    found = []
+    while True:
+        s = _Sql(sql)
+        q = next((j for j in range(len(s.sig)) if s.word(j) == "QUALIFY"), None)
+        if q is None:
+            return sql, found
+        new, finding = _qualify_one(s, q)
+        if new is None:
+            return sql, [finding]
+        sql = new
+        found.append(finding)
+
+
+def _qualify_one(s: _Sql, q: int) -> tuple[str | None, Finding]:
+    def blocked(why: str):
+        return None, Finding("G15_QUALIFY", "block", f"QUALIFY: {why}; rewrite it as a subquery by hand")
+
+    depth, d = [], 0
+    for j in range(len(s.sig)):
+        d -= s.is_punct(j, ")")
+        depth.append(d)
+        d += s.is_punct(j, "(")
+    dq = depth[q]
+    level = [j for j in range(len(s.sig)) if depth[j] == dq]  # this query block's tokens and its parents'
+    sel = next((j for j in range(q - 1, -1, -1) if depth[j] < dq or (depth[j] == dq and s.word(j) == "SELECT")), None)
+    if sel is None or depth[sel] < dq:
+        return blocked("no SELECT before it")
+    end = next((j for j in range(q + 1, len(s.sig)) if depth[j] < dq or (
+        depth[j] == dq and (s.is_punct(j, ";") or s.word(j) in _QUALIFY_STOPS))), len(s.sig))
+    stop = s.word(end) if end < len(s.sig) and depth[end] == dq else ""
+    if stop in ("WINDOW", "UNION", "INTERSECT", "EXCEPT"):
+        return blocked(f"followed by {stop}")
+    cond = s.text(q + 1, end)
+    if not cond:
+        return blocked("no condition")
+    lst = sel + 1
+    distinct = s.word(lst) == "DISTINCT"
+    lst += s.word(lst) in ("DISTINCT", "ALL")
+    if s.word(lst) == "AS":
+        return blocked(f"SELECT AS {s.word(lst + 1)}")
+    frm = next((j for j in level if lst <= j < q and s.word(j) == "FROM"), None)
+    if frm is None:
+        return blocked("no FROM")
+    order = (Finding("G15_QUALIFY", "caveat", "QUALIFY → subquery; its ORDER BY now sorts the subquery's "
+                     "output, so it can name only selected columns") if stop == "ORDER" else None)
+
+    if not any(s.word(k) == "OVER" for k in range(q + 1, end)):
+        new = f"SELECT * FROM ({s.text(sel, q)}) AS _qualified WHERE {cond}"
+        s.replace(sel, end, new)
+        return s.render(), order or Finding("G15_QUALIFY", "rewrite", "QUALIFY on the output → outer WHERE")
+
+    def plain(a: int, b: int) -> bool:  # col, t.col, `t`.`col`
+        return (b - a) % 2 == 1 and all(
+            (s.t(k).kind in ("word", "ident")) if (k - a) % 2 == 0 else s.is_punct(k, ".") for k in range(a, b))
+
+    def norm(tok: Tok) -> str:
+        return tok.text.strip("`").lower()
+
+    items, aliases = [], set()
+    for a, b in s.args(lst - 1, frm):
+        if any(s.is_punct(k, "*") and s.word(k + 1) in ("EXCEPT", "REPLACE") for k in range(a, b)):
+            return blocked(f"SELECT * {s.word(next(k for k in range(a, b) if s.is_punct(k, '*')) + 1)}")
+        if s.is_punct(b - 1, "*"):
+            items.append(s.text(a, b))
+        elif b - a >= 3 and s.word(b - 2) == "AS" and s.t(b - 1).kind in ("word", "ident"):
+            items.append(s.text(a, b))
+            if not (plain(a, b - 2) and norm(s.t(b - 3)) == norm(s.t(b - 1))):
+                aliases.add(norm(s.t(b - 1)))
+        elif plain(a, b):
+            items.append(f"{s.text(a, b)} AS {s.t(b - 1).text}")
+        else:
+            return blocked(f"select item {s.text(a, b)!r} has no name; give it an alias")
+    refs = {norm(s.t(k)) for k in range(q + 1, end) if s.t(k).kind in ("word", "ident")
+            and not s.is_punct(k - 1, ".") and not s.is_punct(k + 1, "(")}
+    if refs & aliases:
+        return blocked(f"its window condition uses the select alias {sorted(refs & aliases)[0]}")
+    new = (f"SELECT {'DISTINCT ' if distinct else ''}_qualify_row.* FROM (SELECT struct({', '.join(items)}) "
+           f"AS _qualify_row, ({cond}) AS _qualify_keep {s.text(frm, q)}) AS _qualified WHERE _qualify_keep")
+    s.replace(sel, end, new)
+    return s.render(), order or Finding("G15_QUALIFY", "rewrite", "QUALIFY → subquery filtered on its condition")
 
 
 def _references(s: _Sql, ctx: Context, out: list[Finding]) -> set[int]:
@@ -419,11 +513,12 @@ def _gate(s: _Sql, exempt: set[int], out: list[Finding]) -> None:
 
 def translate(sql: str, ctx: Context | None = None) -> Result:
     ctx = ctx or Context()
-    s = _Sql(sql)
-    blocks = _blockers(s)
+    blocks = _blockers(_Sql(sql))
+    rewritten, out = _qualify(sql) if not blocks else (sql, [])
+    blocks += [f for f in out if f.severity == "block"]
     if blocks:
         return Result(sql, sql, blocks)
-    out: list[Finding] = []
+    s = _Sql(rewritten)
     _literals_and_comments(s, ctx, out)
     exempt = _references(s, ctx, out)
     _cast_types(s, out)

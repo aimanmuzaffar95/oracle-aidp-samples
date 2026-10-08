@@ -35,6 +35,7 @@ must run.
 | `G06_TIMESTAMP_TRUNC` | `TIMESTAMP_TRUNC(ts, part)` | `date_trunc('PART', ts)` | **caveat** | BigQuery truncates in UTC, Spark in the session time zone (verified: New York vs UTC differ). Exact with `spark.sql.session.timeZone=UTC`. `ISOWEEK` → `'WEEK'` (both Monday). `WEEK`/`WEEK(<day>)` (Sunday start), and any time-zone argument, are flagged |
 | `G07_DATE_DIFF` | `DATE_DIFF(a, b, DAY)` | `datediff(a, b)` | rewrite | Both return a − b in days (verified). Any other part is flagged |
 | `G08_FORMAT_DATE` | `FORMAT_DATE('%Y-%m-%d', d)` with only `%Y %m %d %F` and `- / : . , _ space` | `date_format(d, 'yyyy-MM-dd')` | **caveat** | Exact for years 1000–9999. Before that Spark prints `0005` and BigQuery `5` (both confirmed). Any other specifier is flagged |
+| `G15_QUALIFY` | `... QUALIFY <cond>` | a subquery filtered on `<cond>`: with a window function, the row travels as `struct(<select list>)` beside `(<cond>) AS _qualify_keep` and comes out as `_qualify_row.*`; without one (`QUALIFY rn = 1`), `SELECT * FROM (<query>) WHERE <cond>` | rewrite | Spark 3.5 cannot parse `QUALIFY` (verified). The subquery evaluates the condition after `GROUP BY`/`HAVING`, as `QUALIFY` does, and keeps the same rows (`test_spark_runtime`). `DISTINCT` moves outside; a following `ORDER BY` is a **caveat**: it now sees only selected columns |
 | `G19_CAST_TYPE` | `CAST(x AS INT64)` (also `FLOAT64`, `BOOL`, `BYTES`, `NUMERIC`, nested `ARRAY<STRUCT<...>>`) | `CAST(x AS BIGINT)` ... | rewrite | Spark cannot parse `INT64` (verified). `DATETIME` is a caveat; `TIME`, `JSON`, `GEOGRAPHY`, `BIGNUMERIC`, `INTERVAL` are flagged |
 | `G20_HASH_COMMENT` | `# note` | `-- note` | rewrite | Spark has no `#` comment (verified) |
 | `G21_GCS_PATH` | `'gs://bucket/path'` in a literal | `'oci://bucket@namespace/path'` | rewrite | Through the bucket map; an unmapped bucket is flagged |
@@ -61,7 +62,7 @@ must run.
 
 | Rule | GoogleSQL | Why |
 |---|---|---|
-| `G15_QUALIFY` | `QUALIFY` | Spark 3.5 cannot parse it (verified); needs a subquery with `WHERE` |
+| `G15_QUALIFY` | `QUALIFY` in a shape the rewrite does not cover: a window condition that uses a select alias, `SELECT * EXCEPT/REPLACE`, an unnamed select item, `WINDOW`, a set operation, `SELECT AS STRUCT` | Each one would need the output columns or a guess |
 | `G16_PSEUDO_COLUMN` | `_PARTITIONTIME`, `_PARTITIONDATE`, `_TABLE_SUFFIX`, wildcard tables | No Delta equivalent |
 | `G17_SCRIPTING` | `DECLARE`, `BEGIN…END`, `EXECUTE IMMEDIATE`, `SET`, `IF`, `LOOP`, `CALL`, ... and any multi-statement script | Not translated in 0.1 |
 | `G18_ML_AI_GEO` | `ML.*`, `AI.*`, `ST_*` | No equivalent |

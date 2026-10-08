@@ -66,21 +66,23 @@ the plan shows that at the top.
 ```bash
 pip install -e '.[gcp]'
 export GOOGLE_APPLICATION_CREDENTIALS=/path/outside/the/repo/key.json
-gcp-aidp inventory --project <project> --saved-queries-dir test-estate/saved_queries -o inv.json
-gcp-aidp plan inv.json -o plan.json
+WORK=~/Documents/gcp-aidp-migration      # outputs hold your project's metadata: keep them out of the repo
+mkdir -p $WORK
+gcp-aidp inventory --project <project> --saved-queries-dir test-estate/saved_queries -o $WORK/inv.json
+gcp-aidp plan $WORK/inv.json -o $WORK/plan.json
 ```
 
 Every call is a metadata `GET` with a read-only token: nothing is queried and
 nothing is billed. Add `--scan-services` to also list Dataproc, Composer,
 Dataform, Dataflow and Vertex AI (their APIs refuse a read-only token, so this
 asks for a broader one; the calls are still GETs). In the sandbox they report
-"API not enabled: none". Check that `inv.json` lists:
+"API not enabled: none". Check that `$WORK/inv.json` lists:
 
 | Collection | Expected |
 |---|---|
 | datasets | `migration_test` |
 | tables | `users`, `products`, `orders`, `order_items`, `customer_profiles`, `type_carried`, `type_blocked` (and `status_summary` / `status_summary_daily` if the procedure or the scheduled query has run) |
-| views | `v_simple`, `v_rewritable`, `v_blocked` |
+| views | `v_simple`, `v_rewritable`, `v_latest_order`, `v_blocked` |
 | materialized_views | `mv_daily_orders` |
 | routines | `net_price` (SQL), `parse_utm` (JAVASCRIPT), `refresh_status_summary` (PROCEDURE) |
 | external_tables | `ext_products` (with billing) |
@@ -111,3 +113,47 @@ bq query --use_legacy_sql=false < test-estate/teardown.sql
 bq rm --transfer_config <transfer-config-resource-name>   # from: bq ls --transfer_config --transfer_location=US
 gcloud storage rm --recursive gs://<project>-migration-test
 ```
+
+## 8. Copy the data on AIDP (M4 check)
+
+Generate the notebooks for the target catalog:
+
+```bash
+gcp-aidp plan $WORK/inv.json --catalog gcp_migration_test -o $WORK/plan.json
+gcp-aidp migrate $WORK/plan.json -o $WORK/migrated      # writes $WORK/migrated/notebooks/*.ipynb
+```
+
+On AIDP:
+
+1. **Catalog.** Create the INTERNAL (standard) catalog `gcp_migration_test` if it
+   does not exist.
+2. **Credential.** An entry `gcp_bigquery_reader` with key `credentials_b64`,
+   holding the base64 service account key:
+   `base64 -i ~/.config/gcp-aidp/key.json | tr -d '\n' | pbcopy`, paste it in the
+   AIDP console, then clear the clipboard with `pbcopy < /dev/null`.
+3. **Cluster.** Spark 3.5 with `spark-bigquery-with-dependencies_2.12-0.45.0.jar`
+   installed as a cluster library.
+4. **Import** the four notebooks from `$WORK/migrated/notebooks/` into a workspace
+   folder, and attach each one to that cluster.
+5. **Run `00_diagnose`.** Expect `diagnose: OK`. It prints, for every column, the
+   BigQuery type, the type the connector returned, and the target type. **Send
+   me that table**: it is the check on the type mapping.
+6. **Run `01_structure`.** Expect `structure: 0 problem(s)`: 7 tables
+   created, 3 views created.
+7. **Run `02_copy_dataset` once per dataset.** Set `'dataset': 'migration_test'`
+   (then `'migration_dataset'`) and `'verify': 'counts+sums'` in the PARAMS cell.
+   Expect `verified` on every table and `0 problem(s)`.
+8. **Run `03_reconcile`** with `'counts': True`. Expect `MIGRATED_VERIFIED` for
+   every copied table, `VIEW_CREATED` for `v_simple`, `v_rewritable` and
+   `v_latest_order`,
+   `BLOCKED` for `type_blocked` and `v_blocked`, and `DEFERRED` for
+   `mv_daily_orders` (its snapshot is built by the refresh job, M5).
+
+Reports are written to `/Workspace/gcp-aidp-migration/reports/`
+(`structure_report.json`, `copy_report_<dataset>.json`, `MIGRATION_REPORT.md`).
+Send me the output of steps 5–8. It holds metadata and counts only; the key is
+never printed.
+
+In the sandbox, `orders` and `order_items` lose partitions older than 60 days
+every day. A copy that straddles that moment shows `count_mismatch`; re-run it
+with `'mode': 'overwrite'`.

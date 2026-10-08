@@ -32,13 +32,25 @@ condition; makes the table REVIEW), **flag** (carried, needs review), **block**
 `REQUIRED` columns are created `NOT NULL`. Column and table descriptions become
 `COMMENT`s.
 
-## Still to confirm against the connector (M3/M4)
+## What the connector delivers (confirmed on AIDP)
 
-The mapping above is the target schema. The Spark BigQuery connector decides
-how each type arrives in a DataFrame, and the copy (M4) must convert it to
-this schema. Confirm on the test estate: `TIME` (expected as microseconds or
-text), `DATETIME` (expected as `TIMESTAMP_NTZ` on Spark 3.4+), `BIGNUMERIC`,
-`JSON` and `GEOGRAPHY` (expected as text).
+`00_diagnose` on an AIDP cluster (Spark 3.5.0, `spark-bigquery-with-dependencies_2.12-0.45.0.jar`)
+printed the connector's Spark type for every column of the test estate. The
+copy converts each to the target type above:
+
+| BigQuery | Connector delivers | Copy converts with |
+|---|---|---|
+| `INT64`, `FLOAT64`, `BOOL`, `STRING`, `BYTES`, `DATE`, `TIMESTAMP` | `bigint`, `double`, `boolean`, `string`, `binary`, `date`, `timestamp` | nothing to convert |
+| `STRUCT` / `ARRAY` | `struct<...>` / `array<...>`, fields intact | nothing to convert |
+| `NUMERIC(P,S)`, `BIGNUMERIC(P,S)` with P ≤ 38 | `decimal(P,S)` | nothing to convert |
+| `JSON` | `string` | nothing to convert |
+| `TIME` | `bigint` (microseconds since midnight) | `date_format(timestamp_micros(c), 'HH:mm:ss.SSSSSS')` |
+| `DATETIME` | `string` (ISO 8601) | `CAST(c AS TIMESTAMP)` with the session time zone at UTC |
+
+Every conversion runs with ANSI casts, so a value that does not fit or parse
+fails the table instead of becoming NULL. Not yet observed: unparameterized
+`BIGNUMERIC`, `GEOGRAPHY`, `INTERVAL` and `RANGE` (blocked by default, so
+never read).
 
 ## Table layout (`gcp_aidp/translate/ddl.py`)
 

@@ -12,11 +12,17 @@ Layout decisions are named rules (D0x), recorded as findings:
 """
 from __future__ import annotations
 
+import re
+
 from gcp_aidp.translate.types import map_type_name, quote_ident
 
 MAX_CLUSTER_KEYS = 4
 # Delta clusters only on columns it keeps min/max statistics for.
 _CLUSTERABLE = ("BIGINT", "DOUBLE", "STRING", "DATE", "TIMESTAMP", "DECIMAL")
+# AIDP's Delta keeps the backticks of a quoted CLUSTER BY column as part of its
+# name (UNSUPPORTED_FEATURE.PARTITION_WITH_NESTED_COLUMN_IS_UNSUPPORTED), so
+# clustering keys are written bare and only plain identifiers qualify.
+_PLAIN_IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _EXTERNAL_FORMATS = {"PARQUET": "PARQUET", "AVRO": "AVRO", "ORC": "ORC",
                      "CSV": "CSV", "NEWLINE_DELIMITED_JSON": "JSON"}
 
@@ -60,6 +66,8 @@ def table_layout(table: dict, columns: list[dict]) -> dict:
     for k in dict.fromkeys(keys):
         if not types.get(k, "").startswith(_CLUSTERABLE):
             findings.append(("D02_CLUSTER", "info", f"{k} not clustered: Delta keeps no statistics for {types.get(k) or 'it'}"))
+        elif not _PLAIN_IDENT.fullmatch(k):
+            findings.append(("D02_CLUSTER", "info", f"{k} not clustered: AIDP takes only plain names as CLUSTER BY keys"))
         elif len(cluster_by) == MAX_CLUSTER_KEYS:
             findings.append(("D02_CLUSTER", "info", f"{k} not clustered: at most {MAX_CLUSTER_KEYS} keys"))
         else:
@@ -92,7 +100,7 @@ def create_table(target: dict, columns: list[dict], *, partitioned_by=(), cluste
     if partitioned_by:
         sql += "\nPARTITIONED BY (" + ", ".join(quote_ident(c) for c in partitioned_by) + ")"
     if cluster_by:
-        sql += "\nCLUSTER BY (" + ", ".join(quote_ident(c) for c in cluster_by) + ")"
+        sql += "\nCLUSTER BY (" + ", ".join(cluster_by) + ")"  # bare: see _PLAIN_IDENT
     if comment:
         sql += f"\nCOMMENT {sql_string(comment)}"
     return sql

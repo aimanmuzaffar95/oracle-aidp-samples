@@ -44,6 +44,13 @@ class Layout(unittest.TestCase):
         self.assertIn("at most 4", details)
         self.assertIn("blob not clustered", details)
 
+    def test_D02_CLUSTER_keys_written_bare(self):
+        # AIDP keeps a quoted key's backticks in its name; only plain names cluster.
+        lay = layout([("a", "STRING"), ("we ird", "STRING")], clustering=["a", "we ird"])
+        self.assertEqual(lay["cluster_by"], ["a"])
+        sql = ddl.create_table(T, [{"name": "a", "target_type": "STRING"}], cluster_by=lay["cluster_by"])
+        self.assertTrue(sql.endswith("CLUSTER BY (a)"), sql)
+
     def test_D03_INGESTION_TIME(self):
         lay = layout([("a", "STRING")], partitioning={"type": "DAY", "field": None})
         self.assertIn(("D03_INGESTION_TIME", "flag"), rule_set(lay))
@@ -68,7 +75,7 @@ class Layout(unittest.TestCase):
 
     def test_create_table_quotes_and_escapes(self):
         cols = [{"name": "we`ird", "target_type": "STRING", "nullable": False, "comment": "it's \\ ok"}]
-        sql = ddl.create_table(T, cols, cluster_by=["we`ird"], comment="o'k")
+        sql = ddl.create_table(T, cols, comment="o'k")
         self.assertIn("`we``ird` STRING NOT NULL COMMENT 'it\\'s \\\\ ok'", sql)
         self.assertTrue(sql.startswith("CREATE TABLE IF NOT EXISTS `c`.`s`.`t`"))
         self.assertIn("COMMENT 'o\\'k'", sql)

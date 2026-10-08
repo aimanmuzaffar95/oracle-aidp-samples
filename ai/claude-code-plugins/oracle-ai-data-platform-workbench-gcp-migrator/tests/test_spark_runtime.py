@@ -27,6 +27,7 @@ except ImportError:  # pragma: no cover - optional dependency
 
 from gcp_aidp.migrate import migrate
 from gcp_aidp.plan import build_plan
+from gcp_aidp.translate.googlesql_to_spark import translate
 
 DEMO = json.loads((Path(__file__).parents[1] / "gcp_aidp/fixtures/demo-manifest.json").read_text())
 ORDER = ("schemas", "tables", "materialized_views", "views", "saved_queries", "scheduled_queries", "functions")
@@ -89,6 +90,21 @@ class SparkRuntime(unittest.TestCase):
         for aid, (r, err) in sorted(outcomes.items()):
             if err and aid not in must_run:
                 print(f"  {aid}: {err}")
+
+    def test_G15_QUALIFY_keeps_the_same_rows(self):
+        self.spark.sql("CREATE OR REPLACE TEMP VIEW q AS SELECT * FROM VALUES (1, 10, 5), (2, 10, 7), "
+                       "(3, 11, 5), (4, 11, 5), (5, 12, 1) AS q(id, k, v)")
+        for sql, rows in [
+            ("SELECT * FROM q QUALIFY ROW_NUMBER() OVER (PARTITION BY k ORDER BY v DESC, id) = 1",
+             [(2, 10, 7), (3, 11, 5), (5, 12, 1)]),
+            ("SELECT k, COUNT(*) AS n FROM q GROUP BY k QUALIFY RANK() OVER (ORDER BY COUNT(*) DESC) = 1",
+             [(10, 2), (11, 2)]),
+            ("SELECT DISTINCT k, v FROM q QUALIFY COUNT(*) OVER (PARTITION BY k) > 1", [(10, 5), (10, 7), (11, 5)]),
+            ("SELECT id, RANK() OVER (ORDER BY v) AS r FROM q QUALIFY r = 1 ORDER BY id", [(5, 1)]),
+        ]:
+            r = translate(sql)
+            self.assertNotEqual(r.status, "blocked", r.findings)  # the ORDER BY one carries a caveat
+            self.assertEqual(sorted(tuple(x) for x in self.spark.sql(r.sql).collect()), rows, r.sql)
 
 
 if __name__ == "__main__":

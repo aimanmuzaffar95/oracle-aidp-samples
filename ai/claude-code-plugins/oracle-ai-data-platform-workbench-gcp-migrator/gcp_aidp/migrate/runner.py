@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Callable
 
 from gcp_aidp._atomic import write_text_atomic
+from gcp_aidp.dataplane import data_plan, write_notebooks
 from gcp_aidp.translate import ddl
 from gcp_aidp.translate.gcs_to_oci import build_transfer, location_for, rewrite_uri
 from gcp_aidp.translate.googlesql_to_spark import Context, translate
@@ -231,8 +232,14 @@ def migrate(plan: dict, *, out_dir: Path, log: Callable[[str], None] | None = No
         if log:
             log(f"  {r['status']:<20s} {r['asset_id']}")
     counts = {s: sum(r["status"] == s for r in results) for s in STATUSES}
+    dp = data_plan(plan, results)
+    write_text_atomic(out_dir / "notebooks" / "data_plan.json", json.dumps(dp, indent=2))
+    notebooks = write_notebooks(dp, out_dir)
+    if log:
+        log(f"  notebooks: {', '.join(notebooks)} ({len(dp['tables'])} tables to copy, "
+            f"{len(dp['views'])} views to create)")
     report = {"plan_id": plan.get("plan_id"), "source_project": plan.get("source_project"),
-              "complete": True, "counts": counts, "results": results}
+              "complete": True, "counts": counts, "results": results, "notebooks": notebooks}
     write_text_atomic(out_dir / "report.json", json.dumps(report, indent=2))
     write_text_atomic(out_dir / "report.md", _markdown(report))
     marker.unlink()

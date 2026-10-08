@@ -12,3 +12,9 @@ dist/
 !.env.example
 *.json.key
 *-key.json
+
+# Outputs of the verbs hold a project's metadata; never commit them.
+inventory-*.json
+*.plan.json
+*.plan.md
+migrated/

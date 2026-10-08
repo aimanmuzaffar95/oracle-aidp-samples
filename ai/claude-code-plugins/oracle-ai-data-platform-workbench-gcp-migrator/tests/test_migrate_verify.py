@@ -24,7 +24,7 @@ EXPECTED = {
     "bigquery.view.sales.v_active_customers": "PASS",
     "bigquery.view.marketing.v_campaign_days": "PASS",
     "bigquery.view.sales.v_order_kpis": "REVIEW",       # caveats
-    "bigquery.view.sales.v_latest_order_per_customer": "REVIEW",  # blocked: QUALIFY
+    "bigquery.view.sales.v_latest_order_per_customer": "PASS",  # QUALIFY → subquery
     "bigquery.view.logs.v_all_app_events": "REVIEW",    # blocked: wildcard
     "bigquery.materialized_view.sales.mv_daily_sales": "PASS",
     "bigquery.routine.sales.net_price": "REVIEW",       # no SQL UDFs on Spark 3.5
