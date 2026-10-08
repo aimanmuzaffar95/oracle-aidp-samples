@@ -94,8 +94,13 @@ def cmd_plan(args: argparse.Namespace) -> int:
 
     manifest = _load_json_object(Path(args.manifest), "manifest")
     ns = args.namespace or os.environ.get("OCI_NAMESPACE") or "<your-oci-namespace>"
+    datasets = None
+    if args.datasets is not None:
+        datasets = [d.strip() for d in args.datasets.split(",") if d.strip()]
+        if not datasets:
+            raise ValueError("--datasets is empty; leave it out to plan every dataset")
     plan = build_plan(manifest, oci_namespace=ns, catalog=args.catalog,
-                      bignumeric=args.bignumeric, geography=args.geography)
+                      bignumeric=args.bignumeric, geography=args.geography, datasets=datasets)
     out = Path(args.output) if args.output else Path(args.manifest).with_suffix(".plan.json")
     write_plan(plan, out)
     md = write_plan_markdown(plan, out.with_suffix(".md"))
@@ -218,6 +223,9 @@ def build_parser() -> argparse.ArgumentParser:
     pl.add_argument("-o", "--output", help="plan path (default: <manifest>.plan.json); the .md sits beside it")
     pl.add_argument("--namespace", help="OCI namespace for target buckets (default: $OCI_NAMESPACE)")
     pl.add_argument("--catalog", help="target INTERNAL catalog (default: the project id, made a valid name)")
+    pl.add_argument("--datasets",
+                    help="comma-separated BigQuery datasets to migrate (default: all); the others stay in "
+                         "the plan as SKIP")
     pl.add_argument("--bignumeric", choices=("block", "string"), default="block",
                     help="BIGNUMERIC columns: block the table (default) or carry exact decimal text")
     pl.add_argument("--geography", choices=("block", "wkt"), default="block",

@@ -1,6 +1,6 @@
 ---
 description: Turn a Google Cloud inventory manifest into an AIDP mapping plan and approval document
-argument-hint: "<inv.json> [-o plan.json] [--catalog <aidp-catalog>] [--namespace <oci-namespace>] [--bignumeric block|string] [--geography block|wkt]"
+argument-hint: "<inv.json> [-o plan.json] [--catalog <aidp-catalog>] [--namespace <oci-namespace>] [--datasets a,b] [--bignumeric block|string] [--geography block|wkt]"
 allowed-tools: Bash(gcp-aidp plan:*), Bash(python3 -m gcp_aidp.cli plan:*), Read
 ---
 
@@ -9,7 +9,9 @@ Build a migration plan from an inventory manifest:
 `gcp-aidp plan $ARGUMENTS`
 
 Default the output to `-o plan.json`. Ask for the target catalog if the user has not
-named one; the default is the project id.
+named one; the default is the project id. Ask which datasets to migrate: without
+`--datasets` every dataset in the project is copied, and the others then stay in the
+plan as SKIP.
 
 After it runs, Read `plan.md` (the approval document) and report: the MIGRATE /
 REPORT / SKIP counts, the not-scanned list at the top, and every table blocked by a

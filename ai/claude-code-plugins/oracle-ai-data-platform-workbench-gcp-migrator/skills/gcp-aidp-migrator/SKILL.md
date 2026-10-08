@@ -59,7 +59,9 @@ gcp-aidp run       migrated                               # runs the published m
 ## How to help the user
 
 1. **Confirm scope**: the project, the datasets that matter, and whether they have a
-   key or want the fixture. `--sources bigquery,gcs` narrows the scan.
+   key or want the fixture. `--sources bigquery,gcs` narrows the scan; `plan
+   --datasets a,b` narrows what is migrated. Without it every dataset is copied, so
+   ask before planning a large project.
 2. **Run the verbs in order**; each reads the previous one's output.
 3. **Stop at the plan.** Show `plan.md`, the approval document: the actions, the
    *not scanned* list at the top, and the type decisions. A name collision halts the

@@ -4,8 +4,14 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# The output folder is wiped first. An OUT you set is wiped only if it is empty
+# or holds an earlier demo, so pointing it at a real folder cannot delete it.
+if [ -n "${OUT:-}" ] && [ -n "$(ls -A "$OUT" 2>/dev/null)" ] && [ ! -e "$OUT/.gcp-aidp-demo" ]; then
+  echo "demo.sh: OUT=$OUT is not empty and holds no earlier demo; set OUT to a new folder" >&2
+  exit 1
+fi
 OUT="${OUT:-/tmp/gcp-aidp-demo}"
-rm -rf "$OUT" && mkdir -p "$OUT"
+rm -rf "$OUT" && mkdir -p "$OUT" && touch "$OUT/.gcp-aidp-demo"
 export OCI_NAMESPACE="${OCI_NAMESPACE:-acme-demo-ns}"
 
 bar() { printf '\n%s\n' "════════════════════════════════════════════════════════════"; }

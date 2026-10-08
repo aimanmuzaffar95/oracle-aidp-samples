@@ -338,8 +338,27 @@ def _collisions(assets: list[dict]) -> list[str]:
     return problems
 
 
+def _scope_to_datasets(assets: list[dict], items: dict, datasets: list[str]) -> list[str]:
+    """--datasets: BigQuery assets of any other dataset become SKIP, so the plan
+    still shows the whole estate. A name the inventory does not hold fails closed."""
+    known = {d["name"] for d in items.get("bigquery", {}).get("datasets", [])}
+    unknown = sorted(set(datasets) - known)
+    if unknown:
+        raise ValueError(f"--datasets not in the inventory: {', '.join(unknown)}; "
+                         f"its datasets are: {', '.join(sorted(known)) or 'none'}")
+    for a in assets:
+        src = a["source"]
+        ds = src["name"] if src["type"] == "bq_dataset" else src.get("dataset")
+        if a["id"].startswith("bigquery.") and ds and ds not in datasets and a["action"] != SKIP:
+            a.update(action=SKIP, transform_chain=[], reason=f"dataset {ds} is outside --datasets")
+            a.pop("effort", None)
+    return sorted(set(datasets))
+
+
 def build_plan(manifest: dict, *, oci_namespace: str = OCI_NAMESPACE_DEFAULT,
-               catalog: str | None = None, bignumeric: str = "block", geography: str = "block") -> dict:
+               catalog: str | None = None, bignumeric: str = "block", geography: str = "block",
+               datasets: list[str] | None = None) -> dict:
+    """`datasets`: migrate only these BigQuery datasets (None: every dataset)."""
     if bignumeric not in ("block", "string") or geography not in ("block", "wkt"):
         raise ValueError("bignumeric must be block|string and geography block|wkt")
     mapping = {"bignumeric": bignumeric, "geography": geography}
@@ -359,6 +378,8 @@ def build_plan(manifest: dict, *, oci_namespace: str = OCI_NAMESPACE_DEFAULT,
         else:
             assets += _later(source, items[source])
 
+    if datasets is not None:
+        datasets = _scope_to_datasets(assets, items, datasets)
     dupes = sorted(i for i, n in Counter(a["id"] for a in assets).items() if n > 1)
     if dupes:
         raise ValueError("duplicate asset id(s) in manifest: " + ", ".join(dupes))
@@ -377,6 +398,8 @@ def build_plan(manifest: dict, *, oci_namespace: str = OCI_NAMESPACE_DEFAULT,
         "sources_scanned": manifest.get("sources_scanned", sorted(items)),
         "scan_errors": scan_errors,
         "target": {"catalog": catalog, "catalog_type": "INTERNAL", "oci_namespace": oci_namespace},
+        "scope": {"datasets": datasets,
+                  "inventoried": sorted(d["name"] for d in items.get("bigquery", {}).get("datasets", []))},
         "type_modes": mapping,
         "summary": {"asset_count": len(assets), "by_action": by_action},
         "assets": assets,
@@ -397,6 +420,15 @@ def _groups(plan: dict) -> list[tuple[tuple, int]]:
     return sorted(counts.items(), key=lambda kv: order[kv[0][0]])
 
 
+def _scope_line(plan: dict) -> str:
+    scope = plan.get("scope") or {}
+    total = len(scope.get("inventoried") or [])
+    if scope.get("datasets") is None:
+        return f"Datasets: all {total}"
+    chosen = scope["datasets"]
+    return f"Datasets: {', '.join(chosen)} ({len(chosen)} of {total}; the rest are SKIP)"
+
+
 def summarize_plan(plan: dict) -> str:
     s = plan["summary"]
     t = plan["target"]
@@ -404,6 +436,7 @@ def summarize_plan(plan: dict) -> str:
         f"plan {plan['plan_id']}",
         f"  source project: {plan['source_project']}",
         f"  target catalog: {t['catalog']} ({t['catalog_type']})   OCI namespace: {t['oci_namespace']}",
+        f"  {_scope_line(plan)}",
         f"  total assets:   {s['asset_count']}   "
         + "   ".join(f"{k}={v}" for k, v in s["by_action"].items()),
         "",
@@ -425,6 +458,7 @@ def write_plan_markdown(plan: dict, out: str | Path) -> Path:
         "",
         f"- Source project: `{plan['source_project']}` (scanned {plan['source_scanned_at']})",
         f"- Target catalog: `{t['catalog']}` ({t['catalog_type']}); OCI namespace `{t['oci_namespace']}`",
+        f"- {_scope_line(plan)}",
         "- Counts: " + ", ".join(f"{k} {v}" for k, v in plan["summary"]["by_action"].items()),
         "",
         "Nothing is written to AIDP by `plan` or `migrate`. Only `publish --apply` writes.",

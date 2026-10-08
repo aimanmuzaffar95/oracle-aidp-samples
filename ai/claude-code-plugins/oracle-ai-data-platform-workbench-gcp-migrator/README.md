@@ -207,7 +207,17 @@ Every asset gets a plan row with one of three actions:
 |---|---|
 | `MIGRATE` | migrated in this version |
 | `REPORT` | inventoried and reported with an effort band; not translated (procedures, JavaScript and table functions, BigQuery ML models, access rules) |
-| `SKIP` | planned for a later version, with the reason (notebooks and Dataproc in 0.2, Composer and Dataform in 0.3, Dataflow and Vertex AI later) |
+| `SKIP` | planned for a later version, with the reason (notebooks and Dataproc in 0.2, Composer and Dataform in 0.3, Dataflow and Vertex AI later), or outside `--datasets` |
+
+**What you choose at `plan`:** the target catalog (`--catalog`, default: the project
+id), the OCI namespace for buckets (`--namespace`), the datasets to migrate
+(`--datasets sales,finance`), and whether `BIGNUMERIC` and `GEOGRAPHY` columns are
+carried as text (`--bignumeric string`, `--geography wkt`). Without `--datasets`,
+every dataset in the project is planned and copied. With it, the other datasets'
+assets stay in the plan as `SKIP`, so the approval document still shows the whole
+estate, and its first lines say which datasets are in scope. A view that reads a
+table in an excluded dataset is flagged. Tables within a dataset are not chosen
+here: the copy notebook takes a `tables` parameter for a partial run.
 
 Two assets that would land on the same target name (compared case-insensitively,
 as Spark does) halt the plan. The planner does not pick a winner.

@@ -91,6 +91,7 @@ def plan(
     output: str = "plan.json",
     namespace: Optional[str] = None,
     catalog: Optional[str] = None,
+    datasets: Optional[str] = None,
     bignumeric: str = "block",
     geography: str = "block",
 ) -> str:
@@ -101,6 +102,8 @@ def plan(
         output: plan output path; the approval .md is written beside it.
         namespace: OCI namespace for target buckets (default: $OCI_NAMESPACE).
         catalog: target AIDP catalog (default: the project id, made a valid name).
+        datasets: comma-separated BigQuery datasets to migrate (default: all); the
+            others stay in the plan as SKIP.
         bignumeric: BIGNUMERIC columns: "block" the table or carry exact decimal "string".
         geography: GEOGRAPHY columns: "block" the table or carry "wkt" text.
     """
@@ -109,6 +112,8 @@ def plan(
         args += ["--namespace", namespace]
     if catalog:
         args += ["--catalog", catalog]
+    if datasets:
+        args += ["--datasets", datasets]
     return _run(args)
 
 

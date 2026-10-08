@@ -79,6 +79,47 @@ class DemoPlan(unittest.TestCase):
         self.assertEqual(self.plan["target"]["catalog"], "northwind_analytics_demo")
 
 
+class Datasets(unittest.TestCase):
+    """--datasets narrows what is migrated; the rest of the estate stays in the plan as SKIP."""
+
+    def test_default_is_every_dataset(self):
+        plan = build_plan(DEMO)
+        self.assertIsNone(plan["scope"]["datasets"])
+        self.assertIn("Datasets: all 4", Path(self._md(plan)).read_text())
+
+    def test_other_datasets_become_skip_with_the_reason(self):
+        plan = build_plan(DEMO, datasets=["sales", "logs"])
+        for a in plan["assets"]:
+            if not a["id"].startswith("bigquery."):
+                continue
+            ds = a["source"].get("dataset") or (a["source"]["name"] if a["source"]["type"] == "bq_dataset" else None)
+            if ds in ("marketing", "finance"):
+                self.assertEqual(a["action"], "SKIP", a["id"])
+                self.assertIn("outside --datasets", a["reason"])
+        migrated = {a["source"]["dataset"] for a in plan["assets"]
+                    if a["source"]["type"] == "bq_table" and a["action"] == "MIGRATE"}
+        self.assertEqual(migrated, {"sales", "logs"})
+        self.assertEqual(plan["scope"]["datasets"], ["logs", "sales"])
+        self.assertIn("Datasets: logs, sales (2 of 4; the rest are SKIP)", Path(self._md(plan)).read_text())
+
+    def test_the_copy_covers_only_the_chosen_datasets(self):
+        from gcp_aidp.migrate import migrate
+        with tempfile.TemporaryDirectory() as d:
+            report = migrate(build_plan(DEMO, datasets=["sales"]), out_dir=Path(d))
+        copies = [t["taskKey"] for t in report["jobs"][0]["tasks"] if t["taskKey"].startswith("copy_")]
+        self.assertEqual(copies, ["copy_sales"])
+
+    def test_unknown_dataset_fails_closed(self):
+        with self.assertRaisesRegex(ValueError, "not in the inventory: sale"):
+            build_plan(DEMO, datasets=["sale"])
+
+    def _md(self, plan):
+        from gcp_aidp.plan import write_plan_markdown
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        return write_plan_markdown(plan, Path(self._tmp.name) / "plan.md")
+
+
 class FailClosed(unittest.TestCase):
     def test_case_only_dataset_collision_halts(self):
         m = _manifest(datasets=[{"name": "Sales"}, {"name": "sales"}])

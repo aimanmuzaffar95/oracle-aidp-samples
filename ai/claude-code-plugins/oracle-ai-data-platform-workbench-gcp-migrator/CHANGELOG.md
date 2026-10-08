@@ -70,6 +70,10 @@ All notable changes to this project are documented here. Format loosely follows
   commands `inventory`, `plan`, `migrate`, `verify`, `publish` and `run`.
 - README: what it does, a status table separating live-tested from offline-only,
   translator coverage tables, safety posture, layout and roadmap. `TESTING.md`.
+- `plan --datasets a,b`: migrate only those BigQuery datasets. The other
+  datasets' assets stay in the plan as SKIP with the reason, and the plan's first
+  lines name the scope ("Datasets: all 4", or "sales (1 of 4; the rest are SKIP)").
+  A name the inventory does not hold fails the plan. Also on the MCP `plan` tool.
 - README **Setup**: the Google service account, what an administrator sets up once
   in AIDP (catalog, cluster and connector JAR, credential, a least-privilege
   migration identity), and this machine (aidp-cli, `~/.oci/config`, finding the IDs,
@@ -110,6 +114,11 @@ All notable changes to this project are documented here. Format loosely follows
 - A Cloud Storage bucket name that is not a valid one fails the plan: the name is
   written into the rclone transfer script.
 - `.gitignore` covers `*.pem` and the default output names at the plugin root.
+- `demo.sh` wiped whatever folder `OUT` named. An `OUT` you set is now wiped only
+  if it is empty or holds an earlier demo.
+- `test-estate/MANUAL_STEPS.md` is written for anyone testing the plugin: it adds
+  the publish-and-run path, and its expected results match the seed (six copyable
+  tables, `v_blocked` blocked, the materialized view's verdict per path).
 
 ### Known gaps
 - `EXTRACT(DAY FROM t.col)` is flagged as a relation not in the plan (safe, but

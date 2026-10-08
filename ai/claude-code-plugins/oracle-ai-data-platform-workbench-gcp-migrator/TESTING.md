@@ -92,9 +92,10 @@ Section 8 of `MANUAL_STEPS.md`: install the connector JAR on the cluster, store 
 in the credential store, then run the `00`–`03` notebooks from `migrated/notebooks/`
 in order.
 
-✅ Pass if `03_reconcile` writes `MIGRATION_REPORT.md` with every seeded table
-`MIGRATED_VERIFIED`, the views `VIEW_CREATED`, and `type_blocked` `BLOCKED` (it is
-seeded with types that have no Delta equivalent).
+✅ Pass if each stage reports what the table at the end of that section expects:
+every copied table `MIGRATED_VERIFIED`, three views `VIEW_CREATED`, and
+`type_blocked` and `v_blocked` `BLOCKED` (they are seeded with types and a function
+that have no Delta or Spark equivalent).
 
 ## 7. Live publish and run
 
