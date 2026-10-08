@@ -20,6 +20,8 @@ from pathlib import Path
 
 from gcp_aidp._atomic import write_text_atomic
 from gcp_aidp.inventory.manifest import ALL_SOURCES
+from gcp_aidp.translate.ddl import table_layout
+from gcp_aidp.translate.types import map_column
 
 OCI_NAMESPACE_DEFAULT = "<your-oci-namespace>"
 MIGRATE, REPORT, SKIP = "MIGRATE", "REPORT", "SKIP"
@@ -149,31 +151,26 @@ def _skip(id_, kind, version, source, target_type, name):
                 reason=_SKIP_REASONS[version])
 
 
-def _table_notes(t: dict) -> list[str]:
-    notes = []
-    part = t.get("partitioning") or {}
-    if part and not part.get("field"):
-        notes.append("ingestion-time partitioning: no column carries _PARTITIONTIME; "
-                     "the target is not partitioned and queries filtering on it need rewriting")
-    field = part.get("field")
-    if field and t.get("clustering"):
-        notes.append("partitioned and clustered: carried as liquid CLUSTER BY "
-                     "(partition column first, at most 4 keys); Delta cannot combine both")
-    elif field:
-        col_type = next((c.get("type") for c in t.get("columns", []) if c.get("name") == field), None)
-        if part.get("type") != "DAY" or col_type != "DATE":
-            # Only DAY on a DATE column is exact: Delta partitions by value, not by a
-            # granularity (MONTH, HOUR, an integer range, the day of a TIMESTAMP).
-            notes.append(f"{part.get('type')} partitioning on {col_type} column {field!r}: "
-                         f"carried as liquid CLUSTER BY ({field}); Delta partitions by exact value")
-    if t.get("expiration_ms"):
-        notes.append(f"table expiration ({t['expiration_ms']} ms) is reported, not carried")
-    if t.get("labels"):
-        notes.append(f"labels {sorted(t['labels'])} are reported, not carried")
-    return notes
+def _table_target(t: dict, base: dict, mapping: dict) -> tuple[dict, list[str]]:
+    """The planned table: every column with its type rules, the layout, and plan notes."""
+    columns = [map_column(c, **mapping) for c in t.get("columns", [])]
+    layout = table_layout(t, columns)
+    target = {"type": "aidp_delta_table", **base, "columns": columns,
+              "partitioned_by": layout["partitioned_by"], "cluster_by": layout["cluster_by"],
+              "layout_findings": [list(f) for f in layout["findings"]]}
+    if t.get("description"):
+        target["comment"] = t["description"]
+    notes = [f"{sev.upper()} {rule}: {detail}" for rule, sev, detail in layout["findings"] if sev != "rewrite"]
+    for c in columns:
+        if c["severity"] != "map":
+            notes.append(f"{c['severity'].upper()} column {c['name']} ({', '.join(c['rules'])}): "
+                         + "; ".join(c["details"]))
+    if not columns:
+        notes.append("BLOCK: no columns in the manifest")
+    return target, notes
 
 
-def _bigquery(it: dict[str, list[dict]], catalog: str) -> list[dict]:
+def _bigquery(it: dict[str, list[dict]], catalog: str, mapping: dict) -> list[dict]:
     out = []
 
     def rel(ds, name):
@@ -181,17 +178,18 @@ def _bigquery(it: dict[str, list[dict]], catalog: str) -> list[dict]:
 
     for d in it["datasets"]:
         out.append(_row(f"bigquery.dataset.{d['name']}", "setup", "0.1", MIGRATE,
-                        {"type": "bq_dataset", "name": d["name"], "location": d.get("location")},
+                        {"type": "bq_dataset", "name": d["name"], "location": d.get("location"),
+                         "description": d.get("description", "")},
                         {"type": "aidp_schema", "catalog": catalog, "name": d["name"]},
                         chain=["create_schema"]))
     for t in it["tables"]:
+        target, notes = _table_target(t, rel(t["dataset"], t["name"]), mapping)
         out.append(_row(f"bigquery.table.{t['dataset']}.{t['name']}", "data", "0.1", MIGRATE,
                         {"type": "bq_table", "dataset": t["dataset"], "name": t["name"],
                          "num_rows": t.get("num_rows"), "num_bytes": t.get("num_bytes"),
-                         "partitioning": t.get("partitioning"), "clustering": t.get("clustering")},
-                        {"type": "aidp_delta_table", **rel(t["dataset"], t["name"])},
-                        chain=["map_types", "create_delta_table", "copy_dataset_job"],
-                        notes=_table_notes(t)))
+                         "partitioning": t.get("partitioning"), "clustering": t.get("clustering"),
+                         "columns": t.get("columns", [])},
+                        target, chain=["map_types", "create_delta_table", "copy_dataset_job"], notes=notes))
     for v in it["views"]:
         out.append(_row(f"bigquery.view.{v['dataset']}.{v['name']}", "code", "0.1", MIGRATE,
                         {"type": "bq_view", "dataset": v["dataset"], "name": v["name"], "query": v["query"]},
@@ -214,7 +212,8 @@ def _bigquery(it: dict[str, list[dict]], catalog: str) -> list[dict]:
     for r in it["routines"]:
         rid = f"bigquery.routine.{r['dataset']}.{r['name']}"
         src = {"type": f"bq_{r['routine_type'].lower()}", "dataset": r["dataset"], "name": r["name"],
-               "language": r["language"], "body": r.get("body", "")}
+               "language": r["language"], "body": r.get("body", ""),
+               "arguments": r.get("arguments", []), "return_type": r.get("return_type")}
         if r["routine_type"] == "SCALAR_FUNCTION" and r["language"] == "SQL":
             out.append(_row(rid, "code", "0.1", MIGRATE, src,
                             {"type": "aidp_function", **rel(r["dataset"], r["name"])},
@@ -325,7 +324,10 @@ def _collisions(assets: list[dict]) -> list[str]:
 
 
 def build_plan(manifest: dict, *, oci_namespace: str = OCI_NAMESPACE_DEFAULT,
-               catalog: str | None = None) -> dict:
+               catalog: str | None = None, bignumeric: str = "block", geography: str = "block") -> dict:
+    if bignumeric not in ("block", "string") or geography not in ("block", "wkt"):
+        raise ValueError("bignumeric must be block|string and geography block|wkt")
+    mapping = {"bignumeric": bignumeric, "geography": geography}
     oci_namespace = _validated_namespace(oci_namespace)
     items, scan_errors = _validated_items(manifest)
     project = manifest.get("project_id") or ""
@@ -336,7 +338,7 @@ def build_plan(manifest: dict, *, oci_namespace: str = OCI_NAMESPACE_DEFAULT,
         if source not in items:
             continue
         if source == "bigquery":
-            assets += _bigquery(items[source], catalog)
+            assets += _bigquery(items[source], catalog, mapping)
         elif source == "gcs":
             assets += _gcs(items[source], oci_namespace)
         else:
@@ -361,6 +363,7 @@ def build_plan(manifest: dict, *, oci_namespace: str = OCI_NAMESPACE_DEFAULT,
         "sources_scanned": manifest.get("sources_scanned", sorted(items)),
         "scan_errors": scan_errors,
         "target": {"catalog": catalog, "catalog_type": "INTERNAL", "oci_namespace": oci_namespace},
+        "type_modes": mapping,
         "summary": {"asset_count": len(assets), "by_action": by_action},
         "assets": assets,
     }

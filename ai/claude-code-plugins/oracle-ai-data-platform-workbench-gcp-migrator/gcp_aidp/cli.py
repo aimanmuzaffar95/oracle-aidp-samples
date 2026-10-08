@@ -1,4 +1,4 @@
-"""`gcp-aidp <verb>` — inventory and plan today; migrate, verify and publish follow."""
+"""`gcp-aidp <verb>` — inventory, plan, migrate and verify today; publish follows."""
 from __future__ import annotations
 
 import argparse
@@ -79,13 +79,42 @@ def cmd_plan(args: argparse.Namespace) -> int:
 
     manifest = _load_json_object(Path(args.manifest), "manifest")
     ns = args.namespace or os.environ.get("OCI_NAMESPACE") or "<your-oci-namespace>"
-    plan = build_plan(manifest, oci_namespace=ns, catalog=args.catalog)
+    plan = build_plan(manifest, oci_namespace=ns, catalog=args.catalog,
+                      bignumeric=args.bignumeric, geography=args.geography)
     out = Path(args.output) if args.output else Path(args.manifest).with_suffix(".plan.json")
     write_plan(plan, out)
     md = write_plan_markdown(plan, out.with_suffix(".md"))
     print(f"# wrote {out} and {md} (approval document)\n")
     print(summarize_plan(plan))
     return 0
+
+
+def cmd_migrate(args: argparse.Namespace) -> int:
+    from gcp_aidp.migrate import migrate
+
+    plan = _load_json_object(Path(args.plan), "plan")
+    out_dir = Path(args.out_dir)
+    print(f"# plan={plan.get('plan_id')}  out={out_dir}  (offline: nothing is sent to AIDP)\n")
+    report = migrate(plan, out_dir=out_dir, log=lambda line: print(line, flush=True))
+    c = report["counts"]
+    print(f"\n# done. ok={c['ok']}  needs_review={c['needs_manual_review']}  blocked={c['blocked']}  "
+          f"reported={c['reported']}  skipped={c['skipped']}  error={c['error']}")
+    print(f"# wrote {out_dir}/report.json and {out_dir}/report.md")
+    return 0 if c["error"] == 0 else 1
+
+
+def cmd_verify(args: argparse.Namespace) -> int:
+    from gcp_aidp.verify import format_verify, verify
+
+    path = Path(args.report_or_dir)
+    if path.is_dir():
+        path = path / "report.json"
+    if not path.exists():
+        print(f"error: {path} not found", file=sys.stderr)
+        return 2
+    result = verify(path)
+    print(format_verify(result))
+    return 0 if result["summary"]["FAIL"] == 0 else 1
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -105,7 +134,20 @@ def build_parser() -> argparse.ArgumentParser:
     pl.add_argument("-o", "--output", help="plan path (default: <manifest>.plan.json); the .md sits beside it")
     pl.add_argument("--namespace", help="OCI namespace for target buckets (default: $OCI_NAMESPACE)")
     pl.add_argument("--catalog", help="target INTERNAL catalog (default: the project id, made a valid name)")
+    pl.add_argument("--bignumeric", choices=("block", "string"), default="block",
+                    help="BIGNUMERIC columns: block the table (default) or carry exact decimal text")
+    pl.add_argument("--geography", choices=("block", "wkt"), default="block",
+                    help="GEOGRAPHY columns: block the table (default) or carry WKT text")
     pl.set_defaults(func=cmd_plan)
+
+    mg = sub.add_parser("migrate", help="write translated artifacts and a report locally; contacts nothing")
+    mg.add_argument("plan")
+    mg.add_argument("-o", "--out-dir", default="./migrated", help="output directory (default: ./migrated)")
+    mg.set_defaults(func=cmd_migrate)
+
+    vf = sub.add_parser("verify", help="classify a migrate report into PASS / REVIEW / SKIP / FAIL")
+    vf.add_argument("report_or_dir", help="report.json, or the directory migrate wrote")
+    vf.set_defaults(func=cmd_verify)
     return p
 
 
