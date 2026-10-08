@@ -93,7 +93,7 @@ def main(spark, params: dict, plan: dict) -> list[str]:
 
     report["finished"] = now()
     path = reports_dir(params) / "structure_report.json"
-    previous = read_json(path) or {}
+    previous = read_report(path, plan["catalog"]) or {}
     for section in ("schemas", "tables", "external_tables", "views"):  # a run over some datasets keeps the others' records
         report[section] = {**previous.get(section, {}), **report[section]}
     write_json(path, report)

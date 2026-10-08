@@ -1,6 +1,6 @@
 """Shared helpers for the data-plane notebooks. Runs INSIDE AIDP.
 
-Inlined into every generated notebook (the Snowflake migrator's pattern), so a
+Inlined into every generated notebook, so a
 notebook needs nothing else uploaded beside it. `spark`, `oidlUtils` and
 `aidputils` are globals the AIDP runtime provides; nothing here imports them.
 
@@ -108,6 +108,17 @@ def read_json(path: pathlib.Path) -> dict | None:
         return json.loads(path.read_text())
     except (OSError, ValueError):
         return None
+
+
+def read_report(path: pathlib.Path, catalog: str) -> dict | None:
+    """A stage's earlier report, only if it is for this catalog.
+
+    A reports folder can outlive a plan. Merging a report written for another
+    catalog would carry its failures (or its successes) into this migration.
+    A report that does not name its catalog predates the rule and is dropped.
+    """
+    report = read_json(path)
+    return report if report and report.get("catalog") == catalog else None
 
 
 def write_json(path: pathlib.Path, value: dict) -> None:

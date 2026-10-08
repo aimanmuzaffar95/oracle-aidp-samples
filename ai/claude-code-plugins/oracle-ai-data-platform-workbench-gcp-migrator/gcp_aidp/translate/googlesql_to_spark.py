@@ -232,6 +232,10 @@ def _blockers(s: _Sql) -> list[Finding]:
     return list(dict.fromkeys(out))
 
 
+# A dotted name after one of these is a table. The DML/DDL targets matter most:
+# a two-part `INSERT INTO d.t` left as written would land in whatever catalog
+# the job's session defaults to.
+_RELATION_KEYWORDS = {"FROM", "JOIN", "INTO", "UPDATE", "TABLE", "MERGE", "USING", "INSERT", "DELETE"}
 _QUALIFY_STOPS = {"ORDER", "LIMIT", "WINDOW", "UNION", "INTERSECT", "EXCEPT"}
 
 
@@ -332,7 +336,9 @@ def _references(s: _Sql, ctx: Context, out: list[Finding]) -> set[int]:
     """G01: rewrite table and function references to their planned targets.
 
     A dotted name is a relation when it is a backtick name containing a dot, or
-    follows FROM/JOIN. Elsewhere `a.b.c` is a column path and is left alone.
+    follows a keyword that names a table (FROM, JOIN, and the DML/DDL targets
+    INTO, UPDATE, TABLE, MERGE, USING, INSERT, DELETE). Elsewhere `a.b.c` is a
+    column path and is left alone.
     Returns the indices of rewritten function names (exempt from the gate).
     """
     exempt: set[int] = set()
@@ -356,8 +362,8 @@ def _references(s: _Sql, ctx: Context, out: list[Finding]) -> set[int]:
             else:
                 break
         end = k + 1
-        is_call = s.is_punct(end, "(")
-        in_from = s.word(j - 1) in ("FROM", "JOIN")
+        in_from = s.word(j - 1) in _RELATION_KEYWORDS
+        is_call = s.is_punct(end, "(") and not in_from  # `INSERT INTO d.t (a, b)` names a table
         if len(parts) >= 2 and (quoted_dots or in_from or is_call) and len(parts) <= 3:
             project = parts[0] if len(parts) == 3 else ctx.project
             key = (parts[-2], parts[-1])
@@ -384,8 +390,21 @@ def _cast_types(s: _Sql, out: list[Finding]) -> None:
         if name not in ("CAST", "SAFE_CAST"):
             continue
         close = s.close(j + 1)
-        as_j = next((k for k in range(j + 2, close or j) if s.word(k) == "AS"), None)
-        if close is None or as_j is None:
+        if close is None:
+            continue
+        # The CAST's own AS, at its top level: an AS inside a nested call or CAST
+        # (`CAST(COALESCE(CAST(x AS STRING), bytes) AS STRING)`) is not this one's,
+        # and the words after it are column names, not a type.
+        as_j, depth = None, 0
+        for k in range(j + 2, close):
+            if s.is_punct(k, "("):
+                depth += 1
+            elif s.is_punct(k, ")"):
+                depth -= 1
+            elif depth == 0 and s.word(k) == "AS":
+                as_j = k
+                break
+        if as_j is None:
             continue
         for k in range(as_j + 1, close):
             w = s.word(k)
@@ -488,7 +507,8 @@ def _literals_and_comments(s: _Sql, ctx: Context, out: list[Finding]) -> None:
             t.text = "--" + t.text[1:]
             out.append(Finding("G20_HASH_COMMENT", "rewrite", "# comment → -- comment"))
         elif t.kind == "string":
-            if t.text[:1] in "bB" or t.text[1:2] in "bB":
+            prefix = t.text[:len(t.text) - len(t.text.lstrip("rRbB"))]  # r, b, rb, br before the quote
+            if "b" in prefix.lower():
                 out.append(Finding("G24_LITERAL", "flag", f"bytes literal {t.text[:20]}: Spark uses X'..'"))
             elif "'''" in t.text[:4] or '"""' in t.text[:4]:
                 out.append(Finding("G24_LITERAL", "flag", "triple-quoted string: Spark reads it as three "

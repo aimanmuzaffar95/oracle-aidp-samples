@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 
-# Only these keys are taken from a .env (the Fabric migrator's rule): `publish`
+# Only these keys are taken from a .env: `publish`
 # and `run` start the `aidp` CLI, and a stray PATH= must not choose which one.
 ALLOWED_PREFIXES = ("GCP_", "GOOGLE_APPLICATION_CREDENTIALS", "AIDP_", "OCI_")
 # The plugin folder's .env, read after the working directory's, so the CLI

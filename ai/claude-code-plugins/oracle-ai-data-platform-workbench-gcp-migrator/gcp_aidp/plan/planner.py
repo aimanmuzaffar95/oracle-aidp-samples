@@ -16,6 +16,7 @@ import json
 import re
 import time
 import uuid
+from collections import Counter
 from pathlib import Path
 
 from gcp_aidp._atomic import write_text_atomic
@@ -266,7 +267,15 @@ def _bigquery(it: dict[str, list[dict]], catalog: str, mapping: dict) -> list[di
     return out
 
 
+# A GCS bucket name, as Google allows it. The name is written into the rclone
+# transfer job, a shell script, so anything else in a manifest fails closed.
+_BUCKET = re.compile(r"[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]")
+
+
 def _gcs(it, ns):
+    bad = [b["name"] for b in it["buckets"] if not _BUCKET.fullmatch(b["name"])]
+    if bad:
+        raise ValueError(f"not a Cloud Storage bucket name: {bad}")
     return [_row(f"gcs.bucket.{b['name']}", "data", "0.1", MIGRATE,
                  {"type": "gcs_bucket", "name": b["name"], "location": b.get("location"),
                   "storage_class": b.get("storage_class")},
@@ -350,8 +359,7 @@ def build_plan(manifest: dict, *, oci_namespace: str = OCI_NAMESPACE_DEFAULT,
         else:
             assets += _later(source, items[source])
 
-    ids = [a["id"] for a in assets]
-    dupes = sorted({i for i in ids if ids.count(i) > 1})
+    dupes = sorted(i for i, n in Counter(a["id"] for a in assets).items() if n > 1)
     if dupes:
         raise ValueError("duplicate asset id(s) in manifest: " + ", ".join(dupes))
     collisions = _collisions(assets)

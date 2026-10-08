@@ -1,6 +1,6 @@
 """Verify a complete migration report and classify each result.
 
-Adapted from the AWS migrator's checker. PASS means "translated, and no known
+PASS means "translated, and no known
 issue was detected", not "this runs on Spark": nothing here parses or executes
 the artifact, so a construct no rule covers is reported clean.
 

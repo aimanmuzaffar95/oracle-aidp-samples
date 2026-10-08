@@ -1,7 +1,6 @@
 """Push a migration into an AIDP workspace (`publish`) and start its copy job (`run`).
 
-Follows the Fabric migrator's publisher (fabric_aidp/publish/publisher.py),
-whose rules each came from a failure there:
+The rules:
 
   * Dry run by default; `--apply` is the only thing that sends anything.
   * Never overwrite. A notebook path or job name that exists is skipped, and a
@@ -20,6 +19,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from collections import Counter
 from pathlib import Path
 
 from gcp_aidp.dataplane import MIGRATION_JOB
@@ -28,7 +28,7 @@ from gcp_aidp.publish.aidp_client import AidpClient, AidpError, AidpUnavailable
 
 DEFAULT_WORKSPACE_ROOT = "/Workspace"
 JOB_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
-TASK_TIMEOUT_SECONDS = 12 * 3600  # the Fabric migrator's default
+TASK_TIMEOUT_SECONDS = 12 * 3600  # per task; one dataset's copy can run for hours
 FINAL = {"SUCCESS", "FAILED", "UPSTREAM_FAILED", "CANCELED", "SKIPPED", "TIMEDOUT", "INTERNAL_ERROR"}
 
 
@@ -104,10 +104,10 @@ def plan_publish(out_dir, *, prefix="", workspace_root=DEFAULT_WORKSPACE_ROOT, c
                                          "unscheduled. Not execution-verified.".strip(),
             "maxConcurrentRuns": 1, "tasks": tasks}})
 
-    names = [j["name"] for j in jobs]
-    for dup in sorted({n for n in names if names.count(n) > 1}):  # never pick a winner
-        blocked.append({"job": dup, "reason": f"{names.count(dup)} jobs map to this name"})
-    jobs = [j for j in jobs if names.count(j["name"]) == 1]
+    names = Counter(j["name"] for j in jobs)
+    for dup in sorted(n for n, c in names.items() if c > 1):  # never pick a winner
+        blocked.append({"job": dup, "reason": f"{names[dup]} jobs map to this name"})
+    jobs = [j for j in jobs if names[j["name"]] == 1]
     return {"out_dir": str(out_dir), "folder": folder, "prefix": prefix,
             "notebooks": notebooks, "jobs": jobs, "blocked": blocked}
 
@@ -168,10 +168,7 @@ def publish(out_dir, *, workspace_key=None, cluster_key=None, prefix="", workspa
 
 
 def readable_failure(output_text: str) -> str:
-    """The error text in a task's output (errorTrace, or a cell's ename/evalue), "" if none.
-
-    Copied from the Fabric migrator's scripts/seed_demo_data.py.
-    """
+    """The error text in a task's output (errorTrace, or a cell's ename/evalue), "" if none."""
     try:
         payload = json.loads(output_text)
     except (TypeError, ValueError):

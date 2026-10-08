@@ -54,7 +54,7 @@ All notable changes to this project are documented here. Format loosely follows
   jobs, unscheduled. Dry run by default; `--apply` needs `--prefix`, checks
   the cluster belongs to the workspace and is not its Default Master, and
   never overwrites. `run` starts `<prefix>_gcp_aidp_migration` and polls its
-  tasks. Through `aidp-cli`, with the client copied from the Fabric migrator.
+  tasks. Through `aidp-cli`.
   Run live: 5 notebooks and 2 jobs created, every task succeeded.
 - Jobs from `migrate` (`report["jobs"]`, `notebooks/jobs/`): a refresh job per
   materialized view, and one per scheduled query without a destination table
@@ -62,8 +62,8 @@ All notable changes to this project are documented here. Format loosely follows
 - `AIDP_AUTH` sets `--auth`: `aidp-cli` defaults to `security_token`, so an
   API-key profile needs `AIDP_AUTH=api_key`.
 - MCP server (`gcp_aidp/mcp_server.py`, `gcp-aidp-mcp`, `.mcp.json`) exposing
-  `inventory`, `plan`, `migrate` and `verify` to any MCP client, the same way
-  the AWS migrator does. Each tool runs the CLI. `publish` and `run` stay
+  `inventory`, `plan`, `migrate` and `verify` to any MCP client. Each tool runs
+  the CLI. `publish` and `run` stay
   CLI-only because they change an AIDP workspace. Needs `pip install -e '.[mcp]'`
   (Python 3.10+, `mcp>=1.2,<2`).
 - Claude Code skill `gcp-aidp-migrator` (with `references/verbs.md`) and slash
@@ -88,3 +88,34 @@ All notable changes to this project are documented here. Format loosely follows
   `AIDP_` and `OCI_` keys, and reads the working directory's `.env`, then the
   plugin folder's.
 - `references/dialect-translation.md` lists `G97_LEGACY_SQL`.
+
+### Fixed
+- `G19_CAST_TYPE` rewrote words after a nested CAST's `AS`: in
+  `CAST(COALESCE(CAST(x AS STRING), bytes) AS STRING)` the column `bytes` became
+  `BINARY`, reported clean. A CAST now rewrites only the type after its own
+  top-level `AS`, which also ends a false flag on `CAST(CAST(x AS INT64) AS STRING)`.
+- `G01_REFERENCE` left DML and DDL targets as written: `INSERT INTO d.t`, `MERGE`,
+  `UPDATE`, `DELETE`, `CREATE`/`TRUNCATE TABLE`. A scheduled query's job would have
+  written to `d.t` in the session's default catalog, reported clean. A target in the
+  plan is now rewritten to the AIDP catalog, and one that is not is flagged.
+- `G24_LITERAL` flagged any string starting with the letter b (`'Bought'`) as a
+  bytes literal.
+- Inventory: one dataset, routine or model the account cannot read no longer fails
+  the whole BigQuery scan. It is recorded as *not scanned* and the rest is listed.
+- The data-plane reports name their catalog, and a stage ignores an earlier report
+  for another catalog, so a reused reports folder no longer carries one migration's
+  failures or statuses into the next.
+- `plan` checked duplicate ids in quadratic time; 100,000 tables now plan in about
+  a second.
+- A Cloud Storage bucket name that is not a valid one fails the plan: the name is
+  written into the rclone transfer script.
+- `.gitignore` covers `*.pem` and the default output names at the plugin root.
+
+### Known gaps
+- `EXTRACT(DAY FROM t.col)` is flagged as a relation not in the plan (safe, but
+  noisy).
+- Views are created in plan order, so a view on another view fails the first
+  `01_structure` run and is created on the next.
+- External tables infer their schema on AIDP; the BigQuery column list the
+  inventory reads is not yet carried into the DDL.
+- Scheduled queries are listed only in locations that hold a dataset.

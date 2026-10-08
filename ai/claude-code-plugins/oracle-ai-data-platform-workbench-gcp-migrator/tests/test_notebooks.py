@@ -76,5 +76,18 @@ class Notebooks(unittest.TestCase):
         self.assertNotIn("private_key\\\": \\\"-----", text)
 
 
+
+class Reports(unittest.TestCase):
+    def test_a_report_for_another_catalog_is_not_carried_over(self):
+        from gcp_aidp.dataplane.common import read_report, write_json
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "copy_report_sales.json"
+            write_json(path, {"catalog": "old_cat", "tables": {"sales.orders": {"status": "count_mismatch"}}})
+            self.assertIsNone(read_report(path, "new_cat"))
+            self.assertEqual(read_report(path, "old_cat")["tables"]["sales.orders"]["status"], "count_mismatch")
+            write_json(path, {"tables": {}})  # written before reports named their catalog
+            self.assertIsNone(read_report(path, "new_cat"))
+
+
 if __name__ == "__main__":
     unittest.main()

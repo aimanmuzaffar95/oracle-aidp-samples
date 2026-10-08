@@ -118,6 +118,12 @@ class FailClosed(unittest.TestCase):
         m["sources"]["gcs"] = {"summary": {"error": "403 storage.buckets.list"}, "items": {}}
         self.assertEqual(build_plan(m)["scan_errors"], {"gcs": "403 storage.buckets.list"})
 
+    def test_bucket_name_that_is_not_a_gcs_name_fails_closed(self):
+        # The name goes into a shell script (the rclone transfer job).
+        manifest = {"project_id": "p", "sources": {"gcs": {"items": {"buckets": [{"name": "b$(touch x)"}]}}}}
+        with self.assertRaisesRegex(ValueError, "bucket"):
+            build_plan(manifest)
+
     def test_bad_namespace_and_catalog_rejected(self):
         with self.assertRaises(ValueError):
             build_plan(DEMO, oci_namespace="Bad NS")

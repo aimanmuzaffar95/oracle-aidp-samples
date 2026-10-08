@@ -3,7 +3,7 @@
 Paths are rewritten through a bucket map (GCS bucket → OCI bucket) taken from
 the plan; a bucket the map does not name is flagged and left as written.
 
-The copy itself is an rclone job, as in the AWS migrator: rclone has native
+The copy itself is an rclone job: rclone has native
 Google Cloud Storage and OCI Object Storage backends and gives parallel,
 resumable, checksum-verified transfers. Nothing moves until a human runs it,
 and it only ever reads from Cloud Storage.

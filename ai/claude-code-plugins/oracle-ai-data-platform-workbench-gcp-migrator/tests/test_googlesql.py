@@ -30,6 +30,23 @@ class Rewrites(unittest.TestCase):
     def test_G01_function_reference(self):
         self.assertEqual(t("SELECT sales.net(1)").sql, "SELECT `cat`.`sales`.`net`(1)")
 
+    def test_G01_write_targets(self):
+        # A DML or DDL target is a relation too: left two-part, it would land in
+        # whatever catalog the job's session defaults to.
+        self.assertEqual(t("INSERT INTO sales.orders SELECT * FROM sales.orders").sql,
+                         "INSERT INTO `cat`.`sales`.`orders` SELECT * FROM `cat`.`sales`.`orders`")
+        self.assertEqual(t("INSERT INTO sales.orders (a, b) VALUES (1, 2)").sql,
+                         "INSERT INTO `cat`.`sales`.`orders` (a, b) VALUES (1, 2)")
+        self.assertEqual(t("MERGE sales.orders t USING sales.orders s ON t.a = s.a WHEN MATCHED THEN DELETE").sql,
+                         "MERGE `cat`.`sales`.`orders` t USING `cat`.`sales`.`orders` s ON t.a = s.a "
+                         "WHEN MATCHED THEN DELETE")
+        self.assertIn("`cat`.`sales`.`orders`", t("UPDATE sales.orders SET a = 1 WHERE TRUE").sql)
+        self.assertIn("`cat`.`sales`.`orders`", t("DELETE sales.orders WHERE TRUE").sql)
+        self.assertIn("`cat`.`sales`.`orders`", t("TRUNCATE TABLE sales.orders").sql)
+        r = t("CREATE TABLE sales.new_t (a INT64)")  # not in the plan: flagged, never left to the session
+        self.assertEqual(r.status, "needs_manual_review")
+        self.assertIn("relation sales.new_t", r.findings[0].detail)
+
     def test_G01_column_paths_are_left_alone(self):
         r = t("SELECT o.address.city FROM `proj.sales.orders` o")
         self.assertIn("o.address.city", r.sql)
@@ -76,6 +93,17 @@ class Rewrites(unittest.TestCase):
         self.assertEqual(r.sql, "SELECT CAST(a AS BIGINT), CAST(b AS ARRAY<STRUCT<x DOUBLE, y DECIMAL(10, 2)>>)")
         self.assertEqual(r.status, "ok")
         self.assertIn("G19_CAST_TYPE", rules(t("SELECT CAST(a AS GEOGRAPHY)"), "flag"))
+
+    def test_G19_nested_cast_touches_only_its_own_type(self):
+        # The outer CAST's type is after its own AS, not after the inner one's: a
+        # column named like a type (`bytes`) is left alone, and the inner type is
+        # not rewritten twice.
+        r = t("SELECT CAST(COALESCE(CAST(x AS STRING), bytes) AS STRING) AS y FROM sales.orders")
+        self.assertIn("COALESCE(CAST(x AS STRING), bytes)", r.sql)
+        self.assertEqual(r.status, "ok")
+        r = t("SELECT CAST(CAST(x AS INT64) AS STRING) AS y")
+        self.assertEqual(r.sql, "SELECT CAST(CAST(x AS BIGINT) AS STRING) AS y")
+        self.assertEqual(r.status, "ok")
 
     def test_G20_HASH_COMMENT(self):
         self.assertEqual(t("SELECT 1 # note").sql, "SELECT 1 -- note")
@@ -176,6 +204,9 @@ class Flags(unittest.TestCase):
     def test_G24_LITERAL(self):
         self.flagged("SELECT b'abc'", "G24_LITERAL")
         self.flagged("SELECT '''it's'''", "G24_LITERAL")
+        self.flagged("SELECT rb'\\d'", "G24_LITERAL")
+        # A string that merely starts with the letter b is not a bytes literal.
+        self.assertEqual(t("SELECT 'Bought' AS s, \"bar\" AS u").status, "ok")
 
     def test_G90_NOT_SPARK_BUILTIN(self):
         self.flagged("SELECT ARRAY_TO_STRING(a, ',')", "G90_NOT_SPARK_BUILTIN")

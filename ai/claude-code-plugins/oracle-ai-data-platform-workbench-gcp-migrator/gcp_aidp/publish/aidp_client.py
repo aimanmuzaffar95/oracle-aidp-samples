@@ -1,17 +1,13 @@
 """Talk to AIDP through the `aidp` CLI.
 
-Copied from the Fabric migrator (fabric_aidp/publish/aidp_client.py), where
-every call below was exercised against a live AIDP workspace. Dropped:
-get_job and update_job (publish never edits a job). `run_job` and the
-task-run reads serve `gcp-aidp run`.
+`aidp-cli` is an optional external tool, found on PATH at runtime, never a
+Python dependency: it already handles OCI request signing, endpoint resolution
+and profiles, and doing that here would mean taking on the `oci` SDK and
+breaking `dependencies = []`.
 
-The same bargain as the Node M parser: an optional external tool, discovered
-at runtime, never a Python dependency. `aidp-cli` already solves OCI request
-signing, endpoint resolution and profile handling, and re-implementing that
-here would mean taking on the `oci` SDK and breaking `dependencies = []`.
-
-Every call here was exercised against a live AIDP workspace before it was
-written; the payload shapes are observed, not read off a doc page.
+The payload shapes are observed on a live workspace, not read off a doc page.
+`publish --apply` and `run` have exercised every call here except
+`task_output` (`fetch-output`), which runs only when a task fails.
 """
 from __future__ import annotations
 

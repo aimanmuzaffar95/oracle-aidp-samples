@@ -65,7 +65,9 @@ The demo reads `gcp_aidp/fixtures/demo-manifest.json`, an invented estate
 (Northwind Retail): 4 datasets, 35 tables, 8 views, 2 materialized views,
 routines, BigQuery ML models, saved and scheduled queries, access policies, 4
 Cloud Storage buckets, and Dataproc, Composer, Dataform, Dataflow and Vertex AI
-assets. It writes `plan.json` and the approval document `plan.md`.
+assets. It runs `inventory`, `plan`, `migrate` and `verify`, shows a view before
+and after translation and a blocked one, and ends with a `publish` dry run. It
+contacts nothing; the output is in `/tmp/gcp-aidp-demo/`.
 
 ## Use it as a Claude Code plugin
 
@@ -226,7 +228,7 @@ every asset:
 ## Copying the data
 
 `migrate` also writes four self-contained notebooks to `migrated/notebooks/`,
-which run on an AIDP cluster (the Snowflake migrator's pattern):
+which run on an AIDP cluster:
 
 | Notebook | Reads | Writes |
 |---|---|---|
@@ -326,7 +328,9 @@ commented out.
 
 - **Read-only against Google Cloud.** Inventory makes metadata `GET` calls with a
   `cloud-platform.read-only` token. No query runs and no bytes are billed; row counts
-  come from table metadata.
+  come from table metadata. The one exception is a maintainer script outside the
+  verbs, `scripts/probe_bigquery_semantics.py`: it runs zero-byte queries on literals,
+  each dry-run first, to check the translator's BigQuery side.
 - **No hidden writes in BigQuery.** The copy reads tables only. Reading a view or a
   query result through the connector would create a temporary table, so views are
   rebuilt from translated SQL and materialized views from their query.
@@ -400,14 +404,13 @@ demo.sh                # offline end-to-end demo
 
 0.1 automates the pipeline, one command per step, but not repair. `run` executes the
 whole migration job and reports the verdicts; a failure stops for a human, and a
-rerun skips the copies that finished. There is no execute-check-fix loop like the
-Databricks migrator's Pass 2, which runs a notebook cell by cell and has Claude repair
-failing cells. That is deliberate while what moves is data and DDL, where a wrong
+rerun skips the copies that finished. There is no execute-check-fix loop, one that
+runs migrated code cell by cell on a live cluster and has Claude repair the cells that
+fail. That is deliberate while what moves is data and DDL, where a wrong
 automatic fix silently corrupts a table. Whether it is worth building for code
 migration is decided with 0.2's results.
 
 - 0.2: BigQuery Studio notebooks and Dataproc (clusters, jobs).
-  Under consideration: a live execute-check-fix pass for the migrated code, like
-  the Databricks migrator's Pass 2.
+  Under consideration: a live execute-check-fix pass for the migrated code.
 - 0.3: Composer (Airflow DAGs → AIDP workflows) and Dataform.
 - Later: Dataflow and Vertex AI.

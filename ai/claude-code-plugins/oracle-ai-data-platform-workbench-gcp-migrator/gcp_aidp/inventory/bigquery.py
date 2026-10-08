@@ -105,6 +105,56 @@ def _saved_queries(directory: str | None) -> list[dict]:
             for p in sorted(Path(directory).glob("*.sql"))]
 
 
+def _dataset(client: GcpClient, p: str, ds: str, items: dict, not_scanned: dict, warnings: list,
+             row_policies: dict) -> None:
+    """One dataset: its metadata, tables, routines and models, added to `items`."""
+    meta = client.get(f"{BQ}/projects/{p}/datasets/{ds}")
+    items["datasets"].append({"name": ds, "location": meta.get("location"),
+                              "description": meta.get("description", ""), "labels": meta.get("labels", {})})
+    items["access_policies"] += _dataset_iam(ds, meta.get("access", []))
+
+    for tref in client.pages(f"{BQ}/projects/{p}/datasets/{ds}/tables", "tables"):
+        name = tref["tableReference"]["tableId"]
+        try:
+            t = client.get(f"{BQ}/projects/{p}/datasets/{ds}/tables/{name}")
+        except GcpError as exc:
+            warnings.append(f"table {ds}.{name} not read: {exc}")
+            continue
+        collection, row = _table(ds, t)
+        items[collection].append(row)
+        items["access_policies"] += _policy_tags(ds, name, t.get("schema", {}).get("fields", []))
+        if collection == "tables" and row_policies["ok"]:
+            try:
+                policies = client.pages(f"{BQ}/projects/{p}/datasets/{ds}/tables/{name}/rowAccessPolicies",
+                                        "rowAccessPolicies")
+            except GcpError as exc:
+                row_policies["ok"] = False
+                not_scanned["row_access_policies"] = f"rowAccessPolicies.list refused: {exc}"
+                policies = []
+            items["access_policies"] += [
+                {"kind": "row_access_policy", "dataset": ds, "table": name,
+                 "name": pol.get("rowAccessPolicyReference", {}).get("policyId", "?"),
+                 "filter": pol.get("filterPredicate", "")} for pol in policies]
+
+    for rref in client.pages(f"{BQ}/projects/{p}/datasets/{ds}/routines", "routines"):
+        rid = rref["routineReference"]["routineId"]
+        try:
+            r = client.get(f"{BQ}/projects/{p}/datasets/{ds}/routines/{rid}")
+        except GcpError as exc:
+            warnings.append(f"routine {ds}.{rid} not read: {exc}")
+            continue
+        items["routines"].append({
+            "dataset": ds, "name": rid, "routine_type": r.get("routineType", "ROUTINE_TYPE_UNSPECIFIED"),
+            "language": r.get("language", "SQL"), "body": r.get("definitionBody", ""),
+            "arguments": [{"name": a.get("name"), "type": _type_name(a.get("dataType"))}
+                          for a in r.get("arguments", [])],
+            "return_type": _type_name(r.get("returnType"))})
+
+    for m in client.pages(f"{BQ}/projects/{p}/datasets/{ds}/models", "models"):
+        items["models"].append({"dataset": ds, "name": m["modelReference"]["modelId"],
+                                "model_type": m.get("modelType")})
+
+
 def scan(client: GcpClient, *, saved_queries_dir: str | None = None, log=None) -> dict:
     p = client.project
     items: dict[str, list] = {k: [] for k in (
@@ -120,54 +170,18 @@ def scan(client: GcpClient, *, saved_queries_dir: str | None = None, log=None) -
     else:
         not_scanned["saved_queries"] = ("saved queries have no read API this tool uses in 0.1; "
                                         "export them as .sql files and pass --saved-queries-dir")
-    row_policies_ok = True
+    row_policies = {"ok": True}
 
     for ref in client.pages(f"{BQ}/projects/{p}/datasets", "datasets"):
         ds = ref["datasetReference"]["datasetId"]
         if log:
             log(f"    dataset {ds}")
-        meta = client.get(f"{BQ}/projects/{p}/datasets/{ds}")
-        items["datasets"].append({"name": ds, "location": meta.get("location"),
-                                  "description": meta.get("description", ""), "labels": meta.get("labels", {})})
-        items["access_policies"] += _dataset_iam(ds, meta.get("access", []))
-
-        for tref in client.pages(f"{BQ}/projects/{p}/datasets/{ds}/tables", "tables"):
-            name = tref["tableReference"]["tableId"]
-            try:
-                t = client.get(f"{BQ}/projects/{p}/datasets/{ds}/tables/{name}")
-            except GcpError as exc:
-                warnings.append(f"table {ds}.{name} not read: {exc}")
-                continue
-            collection, row = _table(ds, t)
-            items[collection].append(row)
-            items["access_policies"] += _policy_tags(ds, name, t.get("schema", {}).get("fields", []))
-            if collection == "tables" and row_policies_ok:
-                try:
-                    policies = client.pages(f"{BQ}/projects/{p}/datasets/{ds}/tables/{name}/rowAccessPolicies",
-                                            "rowAccessPolicies")
-                except GcpError as exc:
-                    row_policies_ok = False
-                    not_scanned["row_access_policies"] = f"rowAccessPolicies.list refused: {exc}"
-                    policies = []
-                items["access_policies"] += [
-                    {"kind": "row_access_policy", "dataset": ds, "table": name,
-                     "name": pol.get("rowAccessPolicyReference", {}).get("policyId", "?"),
-                     "filter": pol.get("filterPredicate", "")} for pol in policies]
-
-        for rref in client.pages(f"{BQ}/projects/{p}/datasets/{ds}/routines", "routines"):
-            rid = rref["routineReference"]["routineId"]
-            r = client.get(f"{BQ}/projects/{p}/datasets/{ds}/routines/{rid}")
-            items["routines"].append({
-                "dataset": ds, "name": rid, "routine_type": r.get("routineType", "ROUTINE_TYPE_UNSPECIFIED"),
-                "language": r.get("language", "SQL"), "body": r.get("definitionBody", ""),
-                "arguments": [{"name": a.get("name"), "type": _type_name(a.get("dataType"))}
-                              for a in r.get("arguments", [])],
-                "return_type": _type_name(r.get("returnType"))})
-
-        for m in client.pages(f"{BQ}/projects/{p}/datasets/{ds}/models", "models"):
-            items["models"].append({"dataset": ds, "name": m["modelReference"]["modelId"],
-                                    "model_type": m.get("modelType")})
-
+        try:  # one dataset the account cannot read costs that dataset, not the whole scan
+            _dataset(client, p, ds, items, not_scanned, warnings, row_policies)
+        except GcpError as exc:
+            not_scanned[f"dataset {ds}"] = f"not read: {exc}"
+            if log:
+                log(f"    dataset {ds}: not read: {exc}")
     # Scheduled queries live in the Data Transfer Service, per location.
     for location in sorted({str(d["location"]).lower() for d in items["datasets"] if d.get("location")}):
         try:

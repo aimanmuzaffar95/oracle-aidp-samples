@@ -33,13 +33,10 @@ def _verdict(spark, fqn, structure, copy, recount) -> tuple[str, str]:
 
 def main(spark, params: dict, plan: dict) -> list[str]:
     rdir = reports_dir(params)
-    structure = read_json(rdir / "structure_report.json") or {}
-    if structure and structure.get("catalog") != plan["catalog"]:
-        print(f"ignoring structure_report.json: it is for catalog {structure.get('catalog')!r}")
-        structure = {}
+    structure = read_report(rdir / "structure_report.json", plan["catalog"]) or {}
     copies = {}
     for s in plan["schemas"]:
-        copies.update((read_json(rdir / f"copy_report_{s['name']}.json") or {}).get("tables", {}))
+        copies.update((read_report(rdir / f"copy_report_{s['name']}.json", plan["catalog"]) or {}).get("tables", {}))
     recount = bool(params.get("counts"))
 
     rows = []

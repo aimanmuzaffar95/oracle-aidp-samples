@@ -47,8 +47,9 @@ gcp-aidp verify <migrated/ | report.json>
   human · SKIP = reported only or later version · FAIL = migrator error or a report
   that contradicts itself.
 - PASS is **not execution-verified**.
-- Exit 1 only when FAIL > 0 (an interrupted `migrate` is a FAIL); exit 2 when the
-  report is not found.
+- Exit 1 only when FAIL > 0. Exit 2, with an error and no verdicts, when the report
+  is not found or `migrate` was interrupted (its in-progress marker is still there):
+  re-run `migrate`.
 
 ## publish: upload to AIDP (dry run by default)
 ```

@@ -93,6 +93,25 @@ class FakeClient(GcpClient):
         return RESPONSES[key]
 
 
+class RefusingClient(FakeClient):
+    """Two datasets; the service account may not read the second."""
+
+    def get(self, url, params=None):
+        if url == f"{BQ}/datasets":
+            return {"datasets": [{"datasetReference": {"datasetId": d}} for d in ("migration_test", "restricted")]}
+        if "/datasets/restricted" in url:
+            raise GcpError("HTTP 403 accessDenied", status=403, reason="accessDenied")
+        return super().get(url, params)
+
+
+class OneRefusedDataset(unittest.TestCase):
+    def test_costs_that_dataset_not_the_whole_scan(self):
+        bq = build_manifest(RefusingClient(), ("bigquery",))["sources"]["bigquery"]
+        self.assertNotIn("error", bq["summary"])
+        self.assertIn("orders", [t["name"] for t in bq["items"]["tables"]])
+        self.assertIn("dataset restricted", bq["summary"]["not_scanned"])
+
+
 class LiveInventory(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

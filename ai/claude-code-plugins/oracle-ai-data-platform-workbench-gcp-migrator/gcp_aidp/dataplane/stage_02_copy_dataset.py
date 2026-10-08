@@ -107,9 +107,9 @@ def main(spark, params: dict, plan: dict) -> list[str]:
         raise ValueError(f"the plan has no copyable table in dataset {dataset!r}")
 
     path = reports_dir(params) / f"copy_report_{dataset}.json"
-    report = read_json(path) or {"stage": "copy", "dataset": dataset, "tables": {}}
-    report.update(started=now(), mode=mode, verify=verify)
-    structure = (read_json(reports_dir(params) / "structure_report.json") or {}).get("tables", {})
+    report = read_report(path, plan["catalog"]) or {"stage": "copy", "dataset": dataset, "tables": {}}
+    report.update(catalog=plan["catalog"], started=now(), mode=mode, verify=verify)
+    structure = (read_report(reports_dir(params) / "structure_report.json", plan["catalog"]) or {}).get("tables", {})
     read = bigquery_reader(spark, gcp_credentials(params), plan["project"])
 
     # ponytail: one table at a time; add a thread pool if a dataset's wall time matters.
