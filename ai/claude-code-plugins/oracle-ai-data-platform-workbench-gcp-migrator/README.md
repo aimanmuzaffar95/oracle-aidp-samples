@@ -5,9 +5,11 @@ inventories a Google Cloud data estate centred on BigQuery, plans the mapping to
 AIDP, and (in later milestones) generates reviewable artifacts and copy jobs,
 verifies them, and publishes to AIDP on request.
 
-> **Work in progress (0.1, milestone M2).** `inventory` (fixture mode), `plan`,
-> `migrate` and `verify` work offline today. Live inventory, the data-copy
-> notebooks and `publish` are not built yet. Full documentation arrives with M6.
+> **Work in progress (0.1, milestone M3).** `inventory` (live and fixture),
+> `plan`, `migrate` and `verify` are built. Live inventory has been run against
+> a seeded sandbox project (BigQuery only: no billing, so no Cloud Storage,
+> scheduled queries or other services). The data-copy notebooks and `publish`
+> are not built yet. Full documentation arrives with M6.
 
 ## Quick start (offline, no credentials)
 
@@ -21,6 +23,30 @@ The demo reads `gcp_aidp/fixtures/demo-manifest.json`, an invented estate
 routines, BigQuery ML models, saved and scheduled queries, access policies, 4
 Cloud Storage buckets, and Dataproc, Composer, Dataform, Dataflow and Vertex AI
 assets. It writes `plan.json` and the approval document `plan.md`.
+
+## Live inventory (read-only)
+
+```bash
+pip install -e '.[gcp]'                       # google-auth only
+export GOOGLE_APPLICATION_CREDENTIALS=/path/outside/the/repo/key.json
+gcp-aidp inventory --project <project> [--regions us-central1] [--saved-queries-dir dir] [--scan-services] -o inv.json
+```
+
+Every call is a metadata `GET` made with a `cloud-platform.read-only` token, so
+Google refuses any write. Dataproc, Composer, Dataform, Dataflow and Vertex AI
+refuse a read-only token, so they are listed only with `--scan-services`. That
+flag asks for a `cloud-platform` token for those five services only, and read-only
+then rests on the client sending GETs only and on the service account's
+viewer roles. Without it, they are recorded as *not scanned*. No query runs, and no bytes are billed. Row counts
+come from table metadata. Anything the scan could not read is recorded as *not
+scanned* and shown at the top of the plan: saved queries (pass
+`--saved-queries-dir` instead), BigQuery Studio notebooks and pipelines in 0.1,
+and any API call that was refused. A service whose API is disabled is recorded
+as having nothing to migrate.
+
+`test-estate/` recreates a small estate in any project (`seed.sql`,
+`MANUAL_STEPS.md`, `teardown.sql`), with a checklist of what the inventory must
+list.
 
 Every asset gets a plan row with one of three actions:
 

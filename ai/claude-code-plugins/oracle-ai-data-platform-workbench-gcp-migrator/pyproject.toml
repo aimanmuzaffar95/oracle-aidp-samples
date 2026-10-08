@@ -13,7 +13,8 @@ license-files = ["LICENSE"]
 dependencies = []
 
 [project.optional-dependencies]
-gcp = ["google-cloud-bigquery>=3.20", "google-cloud-storage>=2.16", "google-cloud-bigquery-datatransfer>=3.15"]
+# Live inventory: read-only REST GETs through google-auth; no Google client libraries.
+gcp = ["google-auth[requests]>=2.20"]
 
 [project.scripts]
 gcp-aidp = "gcp_aidp.cli:main"

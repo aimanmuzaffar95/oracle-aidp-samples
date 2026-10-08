@@ -103,7 +103,8 @@ _DATE_LITERALS = set("-/:., _")
 
 # Left in place: Spark has the name or a near equivalent, but not the meaning.
 _FLAGGED_CALLS = {
-    "SAFE_CAST": ("G02_SAFE_CAST", "try_cast parses strings differently (Spark accepts ' 12 ' as 12)"),
+    "SAFE_CAST": ("G02_SAFE_CAST", "try_cast parses strings differently: Spark reads 'yes' and '1' as TRUE "
+                  "and '0x1A' as NULL, where BigQuery gives NULL, NULL and 26"),
     "GENERATE_ARRAY": ("G05_GENERATE_ARRAY", "sequence(5, 1) counts down; GENERATE_ARRAY(5, 1) is empty"),
     "PARSE_DATE": ("G08_PARSE_DATE", "to_date is strict about digit counts where PARSE_DATE is lenient"),
     "ARRAY_LENGTH": ("G09_ARRAY_LENGTH", "size(NULL) is -1 on Spark 3.5; ARRAY_LENGTH(NULL) is NULL"),
@@ -351,8 +352,8 @@ def _functions(s: _Sql, out: list[Finding]) -> set[int]:
             if java is not None and len(args) == 2:
                 s.replace(j, close + 1, f"date_format({s.text(*args[1])}, '{java}')")
                 out.append(Finding("G08_FORMAT_DATE", "caveat",
-                                   f"FORMAT_DATE({fmt.text}) → date_format(.., '{java}'): Spark zero-pads "
-                                   "years before 1000 ('0005'); BigQuery's %Y is not confirmed to"))
+                                   f"FORMAT_DATE({fmt.text}) → date_format(.., '{java}'): exact for years "
+                                   "1000-9999; before that Spark zero-pads ('0005') and BigQuery does not ('5')"))
             else:
                 out.append(Finding("G08_FORMAT_DATE", "flag", "FORMAT_DATE pattern outside the proven set"))
         elif name in _FLAGGED_CALLS:

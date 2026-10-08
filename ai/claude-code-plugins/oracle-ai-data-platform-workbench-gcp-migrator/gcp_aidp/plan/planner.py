@@ -103,8 +103,13 @@ def _validated_items(manifest: dict) -> tuple[dict[str, dict[str, list[dict]]], 
         if not isinstance(data, dict):
             raise ValueError(f"manifest source {source!r} must be a JSON object")
         summary = data.get("summary", {})
-        if isinstance(summary, dict) and summary.get("error"):
-            errors[source] = str(summary["error"])
+        if isinstance(summary, dict):
+            if summary.get("error"):
+                errors[source] = str(summary["error"])
+            for what, why in (summary.get("not_scanned") or {}).items():
+                errors[f"{source}.{what}"] = f"not scanned: {why}"
+            for i, warning in enumerate(summary.get("warnings") or []):
+                errors[f"{source}.warning{i + 1}"] = str(warning)
         items = data.get("items", {})
         if not isinstance(items, dict):
             raise ValueError(f"manifest source {source!r}.items must be a JSON object")
@@ -192,7 +197,8 @@ def _bigquery(it: dict[str, list[dict]], catalog: str, mapping: dict) -> list[di
                         target, chain=["map_types", "create_delta_table", "copy_dataset_job"], notes=notes))
     for v in it["views"]:
         out.append(_row(f"bigquery.view.{v['dataset']}.{v['name']}", "code", "0.1", MIGRATE,
-                        {"type": "bq_view", "dataset": v["dataset"], "name": v["name"], "query": v["query"]},
+                        {"type": "bq_view", "dataset": v["dataset"], "name": v["name"], "query": v["query"],
+                         "legacy_sql": bool(v.get("legacy_sql"))},
                         {"type": "aidp_view", **rel(v["dataset"], v["name"])},
                         chain=["googlesql_to_spark", "create_view"]))
     for m in it["materialized_views"]:
@@ -395,7 +401,8 @@ def summarize_plan(plan: dict) -> str:
         "",
     ]
     for source, err in plan["scan_errors"].items():
-        lines.append(f"  ! {source} scan failed, its assets are missing from this plan: {err}")
+        lines.append(f"  ! {source}: {err}" if "." in source else
+                     f"  ! {source} scan failed, its assets are missing from this plan: {err}")
     for (action, stype, ttype, version, reason), n in _groups(plan):
         line = f"  {action:<7s} {n:4d}  {stype:<26s} → {ttype:<20s} {version:<5s}"
         lines.append(line + (f"  {reason}" if action != MIGRATE else ""))
@@ -416,7 +423,8 @@ def write_plan_markdown(plan: dict, out: str | Path) -> Path:
         "",
     ]
     for source, err in plan["scan_errors"].items():
-        md.append(f"> **{source} scan failed**; its assets are missing from this plan: {err}\n")
+        md.append(f"> **{source}**: {err}\n" if "." in source else
+                  f"> **{source} scan failed**; its assets are missing from this plan: {err}\n")
     for action, title in ((MIGRATE, "To migrate"), (REPORT, "Reported, not translated"),
                           (SKIP, "Skipped in this version")):
         rows = [a for a in plan["assets"] if a["action"] == action]

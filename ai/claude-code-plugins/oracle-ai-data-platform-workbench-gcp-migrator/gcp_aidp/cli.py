@@ -51,20 +51,35 @@ def cmd_inventory(args: argparse.Namespace) -> int:
 
     sources = _parse_sources(args.sources)
     if args.fixture is None:
-        # Live scans (metadata-only BigQuery and Cloud Storage calls) arrive in M3.
-        print("error: live inventory is not implemented yet; use --fixture demo", file=sys.stderr)
-        return 2
-    path = _fixture_path(args.fixture)
-    manifest = _load_json_object(path, "fixture manifest")
-    fixture_sources = manifest.get("sources")
-    if not isinstance(fixture_sources, dict):
-        raise ValueError("fixture manifest field 'sources' must be a JSON object")
-    missing = [s for s in sources if s not in fixture_sources]
-    if missing:
-        raise ValueError("fixture does not contain requested source(s): " + ", ".join(missing))
-    manifest["sources"] = {s: fixture_sources[s] for s in sources}
-    manifest["sources_scanned"] = list(sources)
-    print(f"[fixture] using {path}")
+        from gcp_aidp.gcp_client import GcpClient
+        from gcp_aidp.inventory.manifest import build_manifest
+
+        client = GcpClient(args.project or os.environ.get("GCP_PROJECT", ""))
+        try:
+            client.session  # fail fast on missing google-auth or credentials, before any scan
+        except Exception as exc:  # noqa: BLE001 - reported, never echoing a credential
+            print(f"error: cannot authenticate to Google Cloud: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 2
+        regions = tuple(r.strip() for r in args.regions.split(",") if r.strip())
+        print(f"# project={client.project}  regions={','.join(regions)}  (read-only metadata calls)")
+        log = lambda line: print(f"[{time.strftime('%H:%M:%S')}] {line}", flush=True)
+        if args.scan_services:
+            print("# --scan-services: Dataproc, Composer, Dataform, Dataflow and Vertex AI are listed with a "
+                  "cloud-platform token (GET calls only)")
+        manifest = build_manifest(client, sources, regions=regions, saved_queries_dir=args.saved_queries_dir,
+                                  scan_services=args.scan_services, log=log)
+    else:
+        path = _fixture_path(args.fixture)
+        manifest = _load_json_object(path, "fixture manifest")
+        fixture_sources = manifest.get("sources")
+        if not isinstance(fixture_sources, dict):
+            raise ValueError("fixture manifest field 'sources' must be a JSON object")
+        missing = [s for s in sources if s not in fixture_sources]
+        if missing:
+            raise ValueError("fixture does not contain requested source(s): " + ", ".join(missing))
+        manifest["sources"] = {s: fixture_sources[s] for s in sources}
+        manifest["sources_scanned"] = list(sources)
+        print(f"[fixture] using {path}")
 
     project = manifest.get("project_id") or "unknown"
     out = Path(args.output or f"inventory-{project}-{time.strftime('%Y%m%dT%H%M%S')}.json")
@@ -125,6 +140,12 @@ def build_parser() -> argparse.ArgumentParser:
     inv = sub.add_parser("inventory", help="scan Google Cloud (read-only, metadata only) and emit a manifest")
     inv.add_argument("--project", help="GCP project id (default: $GCP_PROJECT)")
     inv.add_argument("--sources", help=f"comma-separated subset of {','.join(ALL_SOURCES)} (default: all)")
+    inv.add_argument("--regions", default="us-central1",
+                     help="comma-separated regions for Dataproc, Composer, Dataform and Vertex AI (default: us-central1)")
+    inv.add_argument("--saved-queries-dir", help="a folder of saved queries exported as .sql files")
+    inv.add_argument("--scan-services", action="store_true",
+                     help="also list Dataproc, Composer, Dataform, Dataflow and Vertex AI; their APIs refuse a "
+                          "read-only token, so this asks for a cloud-platform token (still GET calls only)")
     inv.add_argument("--fixture", help="load a bundled fixture manifest instead of scanning (e.g. 'demo')")
     inv.add_argument("-o", "--output", help="manifest output path (default: ./inventory-<project>-<ts>.json)")
     inv.set_defaults(func=cmd_inventory)

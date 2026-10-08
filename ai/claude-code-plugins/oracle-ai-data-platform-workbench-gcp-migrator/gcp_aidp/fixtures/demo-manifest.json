@@ -1749,25 +1749,25 @@
           {
             "id": "job-sessionize-01",
             "cluster": "etl-nightly",
-            "type": "pyspark",
+            "job_type": "pyspark",
             "main_file": "gs://northwind-landing/jobs/sessionize.py"
           },
           {
             "id": "job-dedupe-events",
             "cluster": "etl-nightly",
-            "type": "pyspark",
+            "job_type": "pyspark",
             "main_file": "gs://northwind-landing/jobs/dedupe_events.py"
           },
           {
             "id": "job-gl-export",
             "cluster": "etl-nightly",
-            "type": "spark",
+            "job_type": "spark",
             "main_file": "gs://northwind-landing/jobs/gl-export.jar"
           },
           {
             "id": "job-cohort-sql",
             "cluster": "adhoc-analytics",
-            "type": "spark_sql",
+            "job_type": "spark_sql",
             "main_file": "gs://northwind-landing/jobs/cohorts.sql"
           }
         ]
@@ -1836,17 +1836,17 @@
           {
             "id": "2026-09-01_02_00_00-111",
             "name": "pubsub-orders-to-bq",
-            "type": "STREAMING"
+            "job_type": "JOB_TYPE_STREAMING"
           },
           {
             "id": "2026-09-01_03_00_00-222",
             "name": "gcs-cdn-logs-to-bq",
-            "type": "BATCH"
+            "job_type": "JOB_TYPE_BATCH"
           },
           {
             "id": "2026-09-01_04_00_00-333",
             "name": "crm-sync",
-            "type": "BATCH"
+            "job_type": "JOB_TYPE_BATCH"
           }
         ]
       }

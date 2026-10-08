@@ -26,3 +26,18 @@ All notable changes to this project are documented here. Format loosely follows
 - `verify`: PASS / REVIEW / SKIP / FAIL, failing closed on an interrupted run,
   a count mismatch, or a missing or escaping artifact.
 - Tests for every rule ID, and an optional Spark 3.5 + Delta runtime test.
+- Live inventory: BigQuery (datasets, tables, views, materialized views,
+  external tables, routines, models, row access policies, column policy tags,
+  dataset IAM, scheduled queries), Cloud Storage, and Dataproc, Composer,
+  Dataform, Dataflow and Vertex AI for SKIP reporting. Read-only REST GETs with
+  a `cloud-platform.read-only` token; `google-auth` is the only dependency.
+  Gaps are recorded as *not scanned* and shown in the plan.
+- `--scan-services`: those five APIs refuse a read-only token, so they are
+  listed only on request, with a `cloud-platform` token used for them alone.
+- Run against a seeded sandbox project: every object `seed.sql` creates is
+  listed, and the zero-byte probes confirmed or corrected the BigQuery side of
+  the translator rules (`G02_SAFE_CAST`'s reason was wrong and is fixed).
+- `G97_LEGACY_SQL`: a legacy SQL view is blocked.
+- `test-estate/`: `seed.sql`, `MANUAL_STEPS.md`, `teardown.sql`.
+- `scripts/probe_bigquery_semantics.py`: zero-byte queries that confirm the
+  BigQuery side of the translator rules.

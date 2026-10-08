@@ -311,13 +311,13 @@ DATAPROC = {
          "worker_count": 2, "machine_type": "n2-standard-4"},
     ],
     "jobs": [
-        {"id": "job-sessionize-01", "cluster": "etl-nightly", "type": "pyspark",
+        {"id": "job-sessionize-01", "cluster": "etl-nightly", "job_type": "pyspark",
          "main_file": "gs://northwind-landing/jobs/sessionize.py"},
-        {"id": "job-dedupe-events", "cluster": "etl-nightly", "type": "pyspark",
+        {"id": "job-dedupe-events", "cluster": "etl-nightly", "job_type": "pyspark",
          "main_file": "gs://northwind-landing/jobs/dedupe_events.py"},
-        {"id": "job-gl-export", "cluster": "etl-nightly", "type": "spark",
+        {"id": "job-gl-export", "cluster": "etl-nightly", "job_type": "spark",
          "main_file": "gs://northwind-landing/jobs/gl-export.jar"},
-        {"id": "job-cohort-sql", "cluster": "adhoc-analytics", "type": "spark_sql",
+        {"id": "job-cohort-sql", "cluster": "adhoc-analytics", "job_type": "spark_sql",
          "main_file": "gs://northwind-landing/jobs/cohorts.sql"},
     ],
 }
@@ -335,9 +335,9 @@ COMPOSER = {
 DATAFORM = {"repositories": [{"name": "northwind-transformations", "region": "us-central1"}]}
 
 DATAFLOW = {"jobs": [
-    {"id": "2026-09-01_02_00_00-111", "name": "pubsub-orders-to-bq", "type": "STREAMING"},
-    {"id": "2026-09-01_03_00_00-222", "name": "gcs-cdn-logs-to-bq", "type": "BATCH"},
-    {"id": "2026-09-01_04_00_00-333", "name": "crm-sync", "type": "BATCH"},
+    {"id": "2026-09-01_02_00_00-111", "name": "pubsub-orders-to-bq", "job_type": "JOB_TYPE_STREAMING"},
+    {"id": "2026-09-01_03_00_00-222", "name": "gcs-cdn-logs-to-bq", "job_type": "JOB_TYPE_BATCH"},
+    {"id": "2026-09-01_04_00_00-333", "name": "crm-sync", "job_type": "JOB_TYPE_BATCH"},
 ]}
 
 VERTEX = {

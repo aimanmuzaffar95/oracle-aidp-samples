@@ -128,6 +128,10 @@ def _migrate_one(a: dict, ctx: Context, w: _Writer) -> dict:
             translated = ddl.create_table(tgt, tgt["columns"], partitioned_by=tgt["partitioned_by"],
                                           cluster_by=tgt["cluster_by"], comment=tgt.get("comment", ""))
             path = w.sql("tables", stem, aid, findings, translated)
+    elif t == "aidp_view" and src.get("legacy_sql"):
+        source_sql = src["query"]
+        findings = [_f("G97_LEGACY_SQL", "block", "legacy SQL view: rewrite it in GoogleSQL first")]
+        path = w.sql("views", stem, aid, findings, src["query"], blocked=True)
     elif t == "aidp_view":
         r = translate(src["query"], ctx)
         source_sql, findings = src["query"], _sql_findings(r)

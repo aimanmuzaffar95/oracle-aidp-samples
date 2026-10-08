@@ -16,8 +16,10 @@ comments, so no rule edits text inside a literal or a comment.
 
 Every Spark-side claim below was run on **Apache Spark 3.5.9 with Java 17**, the
 AIDP runtime (session time zone set as noted). The BigQuery-side behaviour comes
-from the GoogleSQL reference. Rows marked † are still to be confirmed with a
-zero-byte query on the test estate in M3.
+from the GoogleSQL reference, and was confirmed on BigQuery by
+`scripts/probe_bigquery_semantics.py`, a set of zero-byte queries on literals
+(see `test-estate/MANUAL_STEPS.md`), run on 2026-10-08. Rows marked † are not yet
+confirmed on BigQuery.
 
 `tests/test_spark_runtime.py` runs every generated artifact of the demo on
 Spark 3.5 + Delta 3.2: each one whose findings are only rewrites and caveats
@@ -32,7 +34,7 @@ must run.
 | `G04_COUNTIF` | `COUNTIF(c)` | `count_if(c)` | rewrite | Both count TRUE and ignore NULL (verified) |
 | `G06_TIMESTAMP_TRUNC` | `TIMESTAMP_TRUNC(ts, part)` | `date_trunc('PART', ts)` | **caveat** | BigQuery truncates in UTC, Spark in the session time zone (verified: New York vs UTC differ). Exact with `spark.sql.session.timeZone=UTC`. `ISOWEEK` → `'WEEK'` (both Monday). `WEEK`/`WEEK(<day>)` (Sunday start), and any time-zone argument, are flagged |
 | `G07_DATE_DIFF` | `DATE_DIFF(a, b, DAY)` | `datediff(a, b)` | rewrite | Both return a − b in days (verified). Any other part is flagged |
-| `G08_FORMAT_DATE` | `FORMAT_DATE('%Y-%m-%d', d)` with only `%Y %m %d %F` and `- / : . , _ space` | `date_format(d, 'yyyy-MM-dd')` | **caveat** † | Spark zero-pads years before 1000 (`0005`); BigQuery's `%Y` is not confirmed to. Any other specifier is flagged |
+| `G08_FORMAT_DATE` | `FORMAT_DATE('%Y-%m-%d', d)` with only `%Y %m %d %F` and `- / : . , _ space` | `date_format(d, 'yyyy-MM-dd')` | **caveat** | Exact for years 1000–9999. Before that Spark prints `0005` and BigQuery `5` (both confirmed). Any other specifier is flagged |
 | `G19_CAST_TYPE` | `CAST(x AS INT64)` (also `FLOAT64`, `BOOL`, `BYTES`, `NUMERIC`, nested `ARRAY<STRUCT<...>>`) | `CAST(x AS BIGINT)` ... | rewrite | Spark cannot parse `INT64` (verified). `DATETIME` is a caveat; `TIME`, `JSON`, `GEOGRAPHY`, `BIGNUMERIC`, `INTERVAL` are flagged |
 | `G20_HASH_COMMENT` | `# note` | `-- note` | rewrite | Spark has no `#` comment (verified) |
 | `G21_GCS_PATH` | `'gs://bucket/path'` in a literal | `'oci://bucket@namespace/path'` | rewrite | Through the bucket map; an unmapped bucket is flagged |
@@ -41,9 +43,9 @@ must run.
 
 | Rule | GoogleSQL | Why no rewrite |
 |---|---|---|
-| `G02_SAFE_CAST` | `SAFE_CAST` | `try_cast` parses strings differently: Spark accepts `' 12 '` as 12 (verified) |
-| `G05_GENERATE_ARRAY` | `GENERATE_ARRAY(a, b)` | `sequence(5, 1)` is `[5,4,3,2,1]`; `GENERATE_ARRAY(5, 1)` is empty (verified) |
-| `G08_PARSE_DATE` | `PARSE_DATE` | `to_date` is strict about digit counts; `PARSE_DATE` is lenient |
+| `G02_SAFE_CAST` | `SAFE_CAST` | `try_cast` parses strings differently: Spark reads `'yes'`/`'1'` as TRUE and `'0x1A'` as NULL (verified); BigQuery gives NULL, NULL and 26 †. Both accept `' 12 '` and refuse `'1.5'` (confirmed) |
+| `G05_GENERATE_ARRAY` | `GENERATE_ARRAY(a, b)` | `sequence(5, 1)` is `[5,4,3,2,1]`; `GENERATE_ARRAY(5, 1)` is empty (both confirmed) |
+| `G08_PARSE_DATE` | `PARSE_DATE` | `to_date('2026-1-5', 'yyyy-MM-dd')` raises on Spark 3.5 (verified); `PARSE_DATE` accepts single-digit months (confirmed) |
 | `G09_ARRAY_LENGTH` | `ARRAY_LENGTH(a)` | `size(NULL)` is `-1` on Spark 3.5; `ARRAY_LENGTH(NULL)` is NULL (verified) |
 | `G10_REGEXP` | `REGEXP_CONTAINS`, `REGEXP_EXTRACT[_ALL]`, `REGEXP_REPLACE` | RE2 vs Java regex; Spark's `regexp_extract` defaults to group 1 and fails without one (verified); `\1` vs `$1` |
 | `G11_JSON` | `JSON_VALUE`, `JSON_QUERY`, `JSON_EXTRACT[_SCALAR]` | `get_json_object`'s path syntax and result types differ |

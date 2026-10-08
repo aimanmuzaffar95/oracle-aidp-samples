@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import io
 import json
+import tempfile
 import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
@@ -125,9 +126,17 @@ class FailClosed(unittest.TestCase):
 
 
 class Cli(unittest.TestCase):
-    def test_live_inventory_is_refused_until_m3(self):
-        with redirect_stderr(io.StringIO()):
-            self.assertEqual(main(["inventory", "--project", "p"]), 2)
+    def test_live_inventory_fails_fast_without_credentials(self):
+        from unittest import mock
+        from gcp_aidp.gcp_client import GcpClient
+
+        with tempfile.TemporaryDirectory() as tmp, redirect_stderr(io.StringIO()) as err, \
+                mock.patch.object(GcpClient, "session", new_callable=mock.PropertyMock,
+                                  side_effect=RuntimeError("no google-auth")):
+            out = Path(tmp) / "inv.json"
+            self.assertEqual(main(["inventory", "--project", "p", "-o", str(out)]), 2)
+            self.assertFalse(out.exists())
+        self.assertIn("cannot authenticate", err.getvalue())
 
     def test_fixture_name_cannot_traverse(self):
         with redirect_stderr(io.StringIO()):
