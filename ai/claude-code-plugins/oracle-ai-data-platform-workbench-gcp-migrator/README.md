@@ -8,6 +8,10 @@ notebooks that copy BigQuery tables into Delta, verifies the output, and publish
 and runs it in an AIDP workspace on request. Anything it cannot translate safely
 is flagged or blocked with the reason, never guessed.
 
+The migrator is a standalone command-line tool (`gcp-aidp`) that needs no AI: every
+result comes from the named rules. The Claude Code plugin and the MCP server are
+optional layers on top of it that guide the workflow and help with setup and review.
+
 ## What it does
 
 | Google Cloud | → | AIDP |
@@ -176,6 +180,74 @@ secret.
    OCI_CLI_PROFILE=gcp_migration     # the profile from step 2; unset means DEFAULT
    AIDP_AUTH=api_key                 # aidp-cli otherwise assumes security_token
    ```
+
+## Run a migration
+
+After [Setup](#setup-live-use), seven commands, in order. Stop at each check before
+the next one: the plan, the report and the dry run are where a person decides. In
+Claude Code you can instead ask for the migration in plain words; the
+`gcp-aidp-migrator` skill runs the same steps and stops at the same checks.
+
+1. **Inventory** the project (read-only, metadata only):
+
+   ```bash
+   gcp-aidp inventory --project <project> -o inv.json
+   ```
+
+   Check: the counts per source, and anything listed as *not scanned*. A gap is
+   unknown, not zero.
+
+2. **Plan** the migration and read the approval document:
+
+   ```bash
+   gcp-aidp plan inv.json --catalog <catalog> --datasets <a,b> -o plan.json
+   ```
+
+   Check `plan.md`: the scope line (which datasets), every table blocked by a type,
+   and every `REPORT` and `SKIP` row. Leave out `--datasets` to migrate every dataset.
+
+3. **Migrate**, which writes the artifacts locally and contacts nothing:
+
+   ```bash
+   gcp-aidp migrate plan.json -o migrated
+   ```
+
+   Check `migrated/report.md`: every caveat, flag and block needs a person.
+
+4. **Verify:**
+
+   ```bash
+   gcp-aidp verify migrated
+   ```
+
+   Check: no `FAIL`. `PASS` means no known issue, not that the artifact has run.
+
+5. **Publish, dry run first:**
+
+   ```bash
+   gcp-aidp publish migrated
+   ```
+
+   Check: the folder, the notebooks and the jobs it lists, and nothing `REFUSED`.
+
+6. **Publish for real:**
+
+   ```bash
+   gcp-aidp publish migrated --apply
+   ```
+
+   This uploads the notebooks to `/Workspace/<prefix>/` and creates the jobs,
+   unscheduled. It never overwrites.
+
+7. **Run** the migration job and follow it:
+
+   ```bash
+   gcp-aidp run migrated
+   ```
+
+   Done when every task succeeds and `/Workspace/<prefix>/reports/MIGRATION_REPORT.md`
+   shows `MIGRATED_VERIFIED` (first copy) or `PRESENT_NOT_REVERIFIED` (already copied,
+   counts matching) for every table, with blocked objects named and explained.
 
 ## Live inventory (read-only)
 
@@ -422,5 +494,5 @@ migration is decided with 0.2's results.
 
 - 0.2: BigQuery Studio notebooks and Dataproc (clusters, jobs).
   Under consideration: a live execute-check-fix pass for the migrated code.
-- 0.3: Composer (Airflow DAGs → AIDP workflows) and Dataform.
+- 0.3: Composer (Airflow DAGs → AIDP workflows), Dataform and BigQuery pipelines.
 - Later: Dataflow and Vertex AI.

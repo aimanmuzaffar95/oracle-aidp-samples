@@ -78,6 +78,9 @@ All notable changes to this project are documented here. Format loosely follows
   in AIDP (catalog, cluster and connector JAR, credential, a least-privilege
   migration identity), and this machine (aidp-cli, `~/.oci/config`, finding the IDs,
   `.env`). The least-privilege grants are not yet tested with a restricted user.
+- README **Run a migration**: the seven commands in order, with what to check before
+  each next step; and a note that the CLI needs no AI, the plugin and MCP server being
+  optional layers.
 - `gcp-aidp-migrator-bootstrap` skill: a read-only readiness check, from the CLI to
   the cluster's state, that reports shapes and results, never values.
 
