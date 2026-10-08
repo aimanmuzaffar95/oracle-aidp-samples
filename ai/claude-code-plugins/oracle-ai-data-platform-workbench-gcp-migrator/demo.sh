@@ -36,5 +36,7 @@ cat "$OUT/migrated/views/logs.v_all_app_events.sql"
 bar; echo "  Artifacts at $OUT/"; bar
 echo "  → $OUT/plan.md                (approval document)"
 echo "  → $OUT/migrated/report.md     (migration report, before/after per asset)"
-echo
-echo "  publish (dry run by default) arrives in M5; the data copy notebooks in M4."
+
+bar; echo "  PUBLISH (dry run: contacts nothing)"; bar
+python3 -m gcp_aidp.cli publish "$OUT/migrated" --prefix demo --cluster-key "<your-cluster-key>" | sed -n '1,3p;/and create/,$p'
+

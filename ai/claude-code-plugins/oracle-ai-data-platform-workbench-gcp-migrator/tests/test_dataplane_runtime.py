@@ -50,6 +50,8 @@ MANIFEST = {"project_id": "proj", "sources": {"bigquery": {"items": {
               {"dataset": "shop", "name": "v_kpi", "query": "SELECT COUNTIF(status = 'paid') AS paid, "
                                                             "SAFE_DIVIDE(SUM(total), COUNT(*)) AS avg_total FROM shop.orders"},
               {"dataset": "shop", "name": "v_split", "query": "SELECT SPLIT(status, '.') AS parts FROM shop.orders"}],
+    "materialized_views": [{"dataset": "shop", "name": "mv_daily",
+                            "query": "SELECT order_date, COUNT(*) AS n FROM shop.orders GROUP BY order_date"}],
 }}, "gcs": {"items": {"buckets": [{"name": "shop-landing"}]}}}}
 
 SOURCE = {  # what the connector is expected to return, per table
@@ -98,7 +100,7 @@ class DataPlaneNotebooks(unittest.TestCase):
         files = Path(cls.tmp.name) / "landing" / "files"
         cls.spark.createDataFrame([(1, "a"), (2, "b")], "id long, v string").write.parquet(str(files))
         cls.notebooks = {}
-        for p in (out / "notebooks").glob("*.ipynb"):
+        for p in (out / "notebooks").rglob("*.ipynb"):
             text = p.read_text().replace("oci://shop-landing@ns/files/", files.as_uri())
             cls.notebooks[p.stem] = json.loads(text)
         cls.reports = Path(cls.tmp.name) / "reports"
@@ -157,7 +159,16 @@ class DataPlaneNotebooks(unittest.TestCase):
                                     "shop.type_carried": "MIGRATED_VERIFIED", "shop.geo": "BLOCKED",
                                     "shop.ext_files": "EXTERNAL_NOT_CREATED_YET",
                                     "shop.v_paid": "VIEW_CREATED", "shop.v_kpi": "VIEW_CREATED",
-                                    "shop.v_split": "NEEDS_REVIEW"})
+                                    "shop.v_split": "NEEDS_REVIEW", "shop.mv_daily": "DEFERRED"})
+
+        # The materialized view's job notebook (a task of the migration job) builds the snapshot.
+        for cell in self.notebooks["refresh_shop_mv_daily"]["cells"]:
+            if cell["cell_type"] == "code":
+                exec("".join(cell["source"]), {"spark": self.spark})
+        self.assertEqual(self.spark.table("spark_catalog.shop.mv_daily").count(), 2)
+        self.run_notebook("03_reconcile")
+        verdicts = {o["object"]: o["verdict"] for o in self.report("MIGRATION_REPORT.json")["objects"]}
+        self.assertEqual(verdicts["shop.mv_daily"], "SNAPSHOT_BUILT")
 
         # After the transfer: external tables on request, readable, and reconciled.
         self.assertEqual(self.run_notebook("01_structure", **{"external-tables": "true"}), 0)

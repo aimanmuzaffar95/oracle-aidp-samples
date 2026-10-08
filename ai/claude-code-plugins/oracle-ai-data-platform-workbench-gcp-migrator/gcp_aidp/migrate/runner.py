@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Callable
 
 from gcp_aidp._atomic import write_text_atomic
-from gcp_aidp.dataplane import data_plan, write_notebooks
+from gcp_aidp.dataplane import data_plan, write_jobs, write_notebooks
 from gcp_aidp.translate import ddl
 from gcp_aidp.translate.gcs_to_oci import build_transfer, location_for, rewrite_uri
 from gcp_aidp.translate.googlesql_to_spark import Context, translate
@@ -153,6 +153,8 @@ def _migrate_one(a: dict, ctx: Context, w: _Writer) -> dict:
             snapshot, refresh = ddl.materialized_view(tgt, r.sql)
             translated = f"{snapshot};\n\n-- refresh job {tgt['refresh_job']}:\n{refresh};"
             path = w.sql("materialized_views", stem, aid, findings, translated)
+            row["job"] = {"name": tgt["refresh_job"], "statements": [snapshot, refresh],
+                          "title": f"Refresh {stem} (materialized view snapshot)"}
     elif t == "aidp_external_table":
         source_sql = "\n".join(src.get("source_uris", []))
         location, note = location_for(src.get("source_uris", []))
@@ -185,10 +187,16 @@ def _migrate_one(a: dict, ctx: Context, w: _Writer) -> dict:
         category = "saved_queries" if t == "spark_sql_file" else "scheduled_queries"
         r = translate(src["query"], ctx)
         source_sql, findings = src["query"], _sql_findings(r)
-        if t == "aidp_job":
+        if t == "aidp_job" and src.get("destination_dataset"):
+            findings.append(_f("J02_DESTINATION_TABLE", "flag",
+                               f"writes its result into dataset {src['destination_dataset']!r}; the inventory does "
+                               "not record the table or write mode, so no job is created: add the INSERT by hand"))
+        elif t == "aidp_job":
             findings.append(_f("J01_UNSCHEDULED", "info",
-                               f"job {tgt['name']} is created unscheduled; source schedule {src.get('schedule')!r}"
-                               f", destination dataset {src.get('destination_dataset')!r}"))
+                               f"job {tgt['name']} is created unscheduled; source schedule {src.get('schedule')!r}"))
+            if r.status != "blocked":
+                row["job"] = {"name": tgt["name"], "statements": [r.sql],
+                              "title": f"Scheduled query {src['name']!r} (schedule {src.get('schedule')!r} not applied)"}
         name = tgt["name"].removesuffix(".sql")
         if r.status == "blocked":
             path = w.sql(category, name, aid, findings, src["query"], blocked=True)
@@ -235,11 +243,13 @@ def migrate(plan: dict, *, out_dir: Path, log: Callable[[str], None] | None = No
     dp = data_plan(plan, results)
     write_text_atomic(out_dir / "notebooks" / "data_plan.json", json.dumps(dp, indent=2))
     notebooks = write_notebooks(dp, out_dir)
+    jobs = write_jobs(dp, results, out_dir)
+    notebooks += sorted({t["notebook"] for j in jobs for t in j["tasks"]} - set(notebooks))
     if log:
-        log(f"  notebooks: {', '.join(notebooks)} ({len(dp['tables'])} tables to copy, "
-            f"{len(dp['views'])} views to create)")
+        log(f"  notebooks: {len(notebooks)} ({len(dp['tables'])} tables to copy, "
+            f"{len(dp['views'])} views to create); jobs: {', '.join(j['name'] for j in jobs)}")
     report = {"plan_id": plan.get("plan_id"), "source_project": plan.get("source_project"),
-              "complete": True, "counts": counts, "results": results, "notebooks": notebooks}
+              "complete": True, "counts": counts, "results": results, "notebooks": notebooks, "jobs": jobs}
     write_text_atomic(out_dir / "report.json", json.dumps(report, indent=2))
     write_text_atomic(out_dir / "report.md", _markdown(report))
     marker.unlink()

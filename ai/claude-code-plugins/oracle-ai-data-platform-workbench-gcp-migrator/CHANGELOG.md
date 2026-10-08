@@ -48,3 +48,8 @@ All notable changes to this project are documented here. Format loosely follows
   cast with ANSI on so a value that does not fit fails instead of becoming
   NULL, and never drop a table. Tested by executing every cell on a local
   Spark 3.5 + Delta, with the connector replaced by a local reader.
+- MCP server (`gcp_aidp/mcp_server.py`, `gcp-aidp-mcp`, `.mcp.json`) exposing
+  `inventory`, `plan`, `migrate` and `verify` to any MCP client, the same way
+  the AWS migrator does. Each tool runs the CLI. `publish` and `run` stay
+  CLI-only because they change an AIDP workspace. Needs `pip install -e '.[mcp]'`
+  (Python 3.10+, `mcp>=1.2,<2`).

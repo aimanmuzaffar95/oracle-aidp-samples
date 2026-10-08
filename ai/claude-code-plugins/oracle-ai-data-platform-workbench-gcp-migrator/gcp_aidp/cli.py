@@ -1,4 +1,4 @@
-"""`gcp-aidp <verb>` — inventory, plan, migrate and verify today; publish follows."""
+"""`gcp-aidp <verb>`: inventory, plan, migrate, verify, publish, run."""
 from __future__ import annotations
 
 import argparse
@@ -132,6 +132,69 @@ def cmd_verify(args: argparse.Namespace) -> int:
     return 0 if result["summary"]["FAIL"] == 0 else 1
 
 
+def _aidp(args: argparse.Namespace) -> dict:
+    return {"workspace_key": args.workspace_key or os.environ.get("AIDP_WORKSPACE_KEY"),
+            "instance_id": args.instance_id or os.environ.get("AIDP_INSTANCE_ID"),
+            "profile": args.profile or os.environ.get("OCI_CLI_PROFILE"), "auth": args.auth or os.environ.get("AIDP_AUTH"),
+            "prefix": args.prefix if args.prefix is not None else os.environ.get("AIDP_PREFIX", "")}
+
+
+def cmd_publish(args: argparse.Namespace) -> int:
+    from gcp_aidp.publish import PublishError, publish
+
+    try:
+        result = publish(args.out_dir, cluster_key=args.cluster_key or os.environ.get("AIDP_CLUSTER_KEY"),
+                         apply=args.apply, reuse_existing=args.reuse_existing_notebooks, **_aidp(args))
+    except PublishError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    for b in result["blocked"]:
+        print(f"  REFUSED  job {b['job']}: {b['reason']}")
+    if not args.apply:
+        print(f"dry run: nothing was sent. Would upload to {result['folder']}:")
+        for n in result["notebooks"]:
+            print(f"    {n['remote']}")
+        print("and create, unscheduled:")
+        for j in result["jobs"]:
+            print(f"    job {j['name']}: " + " → ".join(t["taskKey"] for t in j["definition"]["tasks"]))
+        if not result["prefix"]:
+            print("warning: no --prefix; --apply refuses to run without one.")
+        print("re-run with --apply to publish.")
+        return 0
+    failed = [x for x in result["notebooks"] + result["jobs"] if x.get("status") in ("error", "refused")]
+    failed += result["blocked"]
+    print(f"\nuploaded {sum(n['status'] == 'uploaded' for n in result['notebooks'])}/{len(result['notebooks'])} "
+          f"notebook(s); created {sum(j.get('status') == 'created' for j in result['jobs'])}/"
+          f"{len(result['jobs']) + len(result['blocked'])} job(s); {len(failed)} failed or refused.")
+    return 1 if failed else 0
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    from gcp_aidp.publish import PublishError, run
+
+    try:
+        result = run(args.out_dir, job=args.job, wait=args.wait, **_aidp(args))
+    except PublishError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if result["ok"]:
+        print("run finished: every task succeeded. The verdicts are in MIGRATION_REPORT.md in the reports folder.")
+    elif result["finished"]:
+        print("run finished with failures (above). Fix the cause, then run again: completed copies are skipped.")
+    return 0 if result["ok"] else 1
+
+
+def _aidp_args(sp: argparse.ArgumentParser) -> None:
+    sp.add_argument("out_dir", help="the directory `migrate` wrote")
+    sp.add_argument("--prefix", default=None,
+                    help="your workspace folder and job-name prefix, so two people never collide "
+                         "(default: $AIDP_PREFIX; required with publish --apply)")
+    sp.add_argument("--workspace-key", help="AIDP workspace key (default: $AIDP_WORKSPACE_KEY)")
+    sp.add_argument("--instance-id", help="AIDP instance OCID (default: $AIDP_INSTANCE_ID)")
+    sp.add_argument("--profile", help="~/.oci/config profile (default: $OCI_CLI_PROFILE, else DEFAULT)")
+    sp.add_argument("--auth", help="OCI auth mode, e.g. api_key or security_token (default: $AIDP_AUTH, else the aidp CLI's own default, security_token)")
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="gcp-aidp", description="Google Cloud data stack → Oracle AIDP migrator")
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -169,6 +232,22 @@ def build_parser() -> argparse.ArgumentParser:
     vf = sub.add_parser("verify", help="classify a migrate report into PASS / REVIEW / SKIP / FAIL")
     vf.add_argument("report_or_dir", help="report.json, or the directory migrate wrote")
     vf.set_defaults(func=cmd_verify)
+
+    pb = sub.add_parser("publish", help="upload the notebooks and create the jobs in AIDP; a dry run until --apply")
+    _aidp_args(pb)
+    pb.add_argument("--apply", action="store_true", help="actually publish; without it nothing is sent")
+    pb.add_argument("--cluster-key", help="AIDP cluster every task runs on (default: $AIDP_CLUSTER_KEY)")
+    pb.add_argument("--reuse-existing-notebooks", action="store_true",
+                    help="let jobs use notebooks already at their paths (finishing a publish whose job "
+                         "creation failed); they are still never overwritten")
+    pb.set_defaults(func=cmd_publish)
+
+    rn = sub.add_parser("run", help="start a published job on AIDP and follow it to the end")
+    _aidp_args(rn)
+    rn.add_argument("--job", default="gcp_aidp_migration",
+                    help="which of the migration's jobs (default: gcp_aidp_migration, the full copy)")
+    rn.add_argument("--wait", type=int, default=6 * 3600, help="seconds to follow the run (default: 6 hours)")
+    rn.set_defaults(func=cmd_run)
     return p
 
 

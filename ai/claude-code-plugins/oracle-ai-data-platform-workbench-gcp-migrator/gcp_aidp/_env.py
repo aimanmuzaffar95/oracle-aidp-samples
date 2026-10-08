@@ -5,8 +5,13 @@ import os
 from pathlib import Path
 
 
+# Only these keys are taken from a .env (the Fabric migrator's rule): `publish`
+# and `run` start the `aidp` CLI, and a stray PATH= must not choose which one.
+ALLOWED_PREFIXES = ("GCP_", "GOOGLE_APPLICATION_CREDENTIALS", "AIDP_", "OCI_")
+
+
 def load_dotenv(path: str | Path | None = None) -> None:
-    """Load KEY=VALUE pairs from .env into os.environ if not already set."""
+    """Load allowed KEY=VALUE pairs from .env into os.environ if not already set."""
     p = Path(path or ".env")
     if not p.exists():
         return
@@ -19,7 +24,7 @@ def load_dotenv(path: str | Path | None = None) -> None:
         k, _, v = line.partition("=")
         k = k.strip()
         v = v.strip().strip('"').strip("'")
-        if k and k not in os.environ:
+        if k.startswith(ALLOWED_PREFIXES) and k not in os.environ:
             os.environ[k] = v
 
 

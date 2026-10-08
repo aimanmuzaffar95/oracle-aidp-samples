@@ -9,5 +9,6 @@
   "homepage": "https://github.com/oracle-samples/oracle-aidp-samples/tree/main/ai/claude-code-plugins/oracle-ai-data-platform-workbench-gcp-migrator",
   "repository": "https://github.com/oracle-samples/oracle-aidp-samples",
   "license": "MIT",
-  "keywords": ["aidp", "oracle", "gcp", "google-cloud", "bigquery", "migration", "spark", "delta"]
+  "keywords": ["aidp", "oracle", "gcp", "google-cloud", "bigquery", "migration", "spark", "delta"],
+  "mcpServers": "./.mcp.json"
 }

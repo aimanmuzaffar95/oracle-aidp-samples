@@ -50,8 +50,11 @@ def main(spark, params: dict, plan: dict) -> list[str]:
         rows.append({"object": key, "kind": "table", "verdict": verdict, "detail": detail,
                      "plan_rows": t.get("num_rows")})
     for b in plan["not_created"]:  # BLOCKED, NEEDS_REVIEW (flagged view) or DEFERRED (materialized view)
-        rows.append({"object": f"{b['dataset']}.{b['name']}", "kind": b["kind"], "verdict": b["verdict"],
-                     "detail": b["reason"]})
+        verdict, detail = b["verdict"], b["reason"]
+        if verdict == "DEFERRED" and b.get("target") and table_exists(spark, quote(*b["target"])):
+            verdict, detail = "SNAPSHOT_BUILT", "built by its refresh job; refresh it with that job"
+        rows.append({"object": f"{b['dataset']}.{b['name']}", "kind": b["kind"], "verdict": verdict,
+                     "detail": detail})
     for e in plan.get("external_tables", []):
         key = f"{e['dataset']}.{e['name']}"
         rec = structure.get("external_tables", {}).get(key, {})

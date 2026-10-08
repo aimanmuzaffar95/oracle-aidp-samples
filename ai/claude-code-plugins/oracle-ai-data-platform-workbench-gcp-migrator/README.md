@@ -5,12 +5,14 @@ inventories a Google Cloud data estate centred on BigQuery, plans the mapping to
 AIDP, and (in later milestones) generates reviewable artifacts and copy jobs,
 verifies them, and publishes to AIDP on request.
 
-> **Work in progress (0.1, milestone M4).** `inventory` (live and fixture),
+> **Work in progress (0.1, milestone M5).** `inventory` (live and fixture),
 > `plan`, `migrate` and `verify` are built. Live inventory has been run against
 > a seeded sandbox project (BigQuery only: no billing, so no Cloud Storage,
-> scheduled queries or other services). The data-copy notebooks are generated
-> and tested on a local Spark 3.5 + Delta, not yet on an AIDP cluster. `publish`
-> is not built yet. Full documentation arrives with M6.
+> scheduled queries or other services). The data-copy notebooks have run end to
+> end on an AIDP cluster (Spark 3.5.0) against that project: 7 tables copied
+> with matching row counts, 3 views created. `publish` and `run` are built and
+> tested against a fake AIDP client, not yet against a live workspace. Full
+> documentation arrives with M6.
 
 ## Quick start (offline, no credentials)
 
@@ -24,6 +26,12 @@ The demo reads `gcp_aidp/fixtures/demo-manifest.json`, an invented estate
 routines, BigQuery ML models, saved and scheduled queries, access policies, 4
 Cloud Storage buckets, and Dataproc, Composer, Dataform, Dataflow and Vertex AI
 assets. It writes `plan.json` and the approval document `plan.md`.
+
+> **Codex / Cursor / any MCP client:** `inventory`, `plan`, `migrate` and
+> `verify` are also exposed as an **MCP server** (`gcp-aidp-mcp`, wired up in
+> `.mcp.json`). Run `pip install -e '.[mcp]'` (Python 3.10+) before first use;
+> without it the server exits and the client reports it as failed in `/mcp`.
+> `publish` and `run` change an AIDP workspace, so they are CLI-only.
 
 ## Live inventory (read-only)
 

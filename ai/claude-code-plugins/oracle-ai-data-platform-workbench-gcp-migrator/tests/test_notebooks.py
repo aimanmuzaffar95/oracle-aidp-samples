@@ -26,8 +26,8 @@ class Notebooks(unittest.TestCase):
         cls.tmp.cleanup()
 
     def test_one_self_contained_notebook_per_stage(self):
-        self.assertEqual(self.report["notebooks"], [f"notebooks/{s}.ipynb" for s in STAGES])
-        for path in self.report["notebooks"]:
+        self.assertEqual(self.report["notebooks"][:4], [f"notebooks/{s}.ipynb" for s in STAGES])
+        for path in self.report["notebooks"][:4]:  # the job notebooks fail on their own: spark.sql raises
             nb = json.loads((self.out / path).read_text())
             self.assertEqual((nb["nbformat"], nb["metadata"]["kernelspec"]["name"]), (4, "python3"))
             code = ["".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code"]
@@ -36,6 +36,25 @@ class Notebooks(unittest.TestCase):
                 self.assertNotIn("from gcp_aidp", cell)  # nothing to upload beside the notebook
             self.assertIn("raise RuntimeError", code[-1])  # a failed stage fails the task
             self.assertNotIn("SystemExit", code[-1].split("\n", 3)[-1])
+
+    def test_jobs(self):
+        jobs = {j["name"]: j for j in self.report["jobs"]}
+        chain = jobs["gcp_aidp_migration"]["tasks"]
+        keys = [t["taskKey"] for t in chain]
+        self.assertEqual(keys[:2] + keys[-1:], ["diagnose", "structure", "reconcile"])
+        self.assertIn("copy_sales", keys)
+        self.assertIn("snapshot_refresh_sales_mv_daily_sales", keys)
+        self.assertEqual([t.get("dependsOn") for t in chain[1:]], [[k] for k in keys[:-1]])  # one at a time
+        copy = next(t for t in chain if t["taskKey"] == "copy_sales")
+        self.assertEqual(copy["parameters"], [{"name": "dataset", "value": "sales"}])
+        # Each materialized view also gets its own refresh job, running its snapshot and refresh SQL.
+        mv = jobs["refresh_sales_mv_daily_sales"]["tasks"][0]["notebook"]
+        cells = [c for c in json.loads((self.out / mv).read_text())["cells"] if c["cell_type"] == "code"]
+        self.assertEqual(len(cells), 2)
+        self.assertIn("INSERT OVERWRITE", "".join(cells[1]["source"]))
+        for j in self.report["jobs"]:
+            for t in j["tasks"]:
+                self.assertIn(t["notebook"], self.report["notebooks"])
 
     def test_data_plan_holds_only_what_can_run(self):
         tables = {f"{t['dataset']}.{t['name']}" for t in self.dp["tables"]}

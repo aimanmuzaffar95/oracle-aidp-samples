@@ -30,7 +30,7 @@ EXPECTED = {
     "bigquery.routine.sales.net_price": "REVIEW",       # no SQL UDFs on Spark 3.5
     "bigquery.routine.finance.close_month": "SKIP",     # reported
     "bigquery.saved_query.Churn_scoring": "REVIEW",     # blocked: ML.PREDICT
-    "bigquery.scheduled_query.6512f0a1-0000-2b8e-a1d4-001a11440002": "PASS",
+    "bigquery.scheduled_query.6512f0a1-0000-2b8e-a1d4-001a11440002": "REVIEW",  # J02: destination table
     "gcs.bucket.northwind-landing": "REVIEW",           # transfer prerequisites
     "dataproc.cluster.etl-nightly": "SKIP",
     "vertex.model.vm-001": "SKIP",
@@ -62,10 +62,13 @@ class Demo(unittest.TestCase):
                 body = (self.out / r["output_path"]).read_text()
                 self.assertTrue(all(l.startswith("--") or not l.strip() for l in body.splitlines()), r["asset_id"])
 
-    def test_J01_UNSCHEDULED_and_M01_MATERIALIZED_VIEW_are_recorded(self):
+    def test_J01_UNSCHEDULED_J02_DESTINATION_TABLE_and_M01_MATERIALIZED_VIEW_are_recorded(self):
         by_id = {r["asset_id"]: r for r in self.report["results"]}
-        job = by_id["bigquery.scheduled_query.6512f0a1-0000-2b8e-a1d4-001a11440002"]
+        job = by_id["bigquery.scheduled_query.6512f0a1-0000-2b8e-a1d4-001a11440003"]  # no destination
         self.assertIn("J01_UNSCHEDULED", [f["rule"] for f in job["findings"]])
+        into = by_id["bigquery.scheduled_query.6512f0a1-0000-2b8e-a1d4-001a11440002"]
+        self.assertIn(("J02_DESTINATION_TABLE", "flag"), [(f["rule"], f["severity"]) for f in into["findings"]])
+        self.assertNotIn("job", into)  # running only its SELECT would write nothing
         mv = by_id["bigquery.materialized_view.sales.mv_daily_sales"]
         self.assertIn("M01_MATERIALIZED_VIEW", [f["rule"] for f in mv["findings"]])
 
