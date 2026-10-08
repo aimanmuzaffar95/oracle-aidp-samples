@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gcp-aidp-migrator"
+dynamic = ["version"]
+description = "Google Cloud data-stack → Oracle AIDP migrator (BigQuery, Cloud Storage)"
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
+# Offline verbs (fixture inventory, plan) need nothing beyond the stdlib.
+dependencies = []
+
+[project.optional-dependencies]
+gcp = ["google-cloud-bigquery>=3.20", "google-cloud-storage>=2.16", "google-cloud-bigquery-datatransfer>=3.15"]
+
+[project.scripts]
+gcp-aidp = "gcp_aidp.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["gcp_aidp*"]
+
+[tool.setuptools.package-data]
+"gcp_aidp.fixtures" = ["*.json"]
+
+[tool.setuptools.dynamic]
+version = { attr = "gcp_aidp.__version__" }

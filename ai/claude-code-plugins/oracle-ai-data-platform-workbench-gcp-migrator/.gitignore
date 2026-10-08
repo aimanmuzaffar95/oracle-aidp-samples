@@ -1,0 +1,14 @@
+.DS_Store
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+build/
+dist/
+
+# Never commit credentials: a filled-in .env or a service account key.
+.env
+.env.*
+!.env.example
+*.json.key
+*-key.json
