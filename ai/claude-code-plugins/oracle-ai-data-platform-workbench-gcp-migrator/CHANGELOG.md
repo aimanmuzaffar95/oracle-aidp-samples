@@ -48,8 +48,32 @@ All notable changes to this project are documented here. Format loosely follows
   cast with ANSI on so a value that does not fit fails instead of becoming
   NULL, and never drop a table. Tested by executing every cell on a local
   Spark 3.5 + Delta, with the connector replaced by a local reader.
+- Data-plane notebooks run end to end on AIDP (Spark 3.5.0): 7 tables
+  `MIGRATED_VERIFIED`, 3 views created.
+- `publish`: uploads the notebooks to `/Workspace/<prefix>/` and creates the
+  jobs, unscheduled. Dry run by default; `--apply` needs `--prefix`, checks
+  the cluster belongs to the workspace and is not its Default Master, and
+  never overwrites. `run` starts `<prefix>_gcp_aidp_migration` and polls its
+  tasks. Through `aidp-cli`, with the client copied from the Fabric migrator.
+  Run live: 5 notebooks and 2 jobs created, every task succeeded.
+- Jobs from `migrate` (`report["jobs"]`, `notebooks/jobs/`): a refresh job per
+  materialized view, and one per scheduled query without a destination table
+  (`J02` flags those with one). `reconcile` reports `SNAPSHOT_BUILT`.
+- `AIDP_AUTH` sets `--auth`: `aidp-cli` defaults to `security_token`, so an
+  API-key profile needs `AIDP_AUTH=api_key`.
 - MCP server (`gcp_aidp/mcp_server.py`, `gcp-aidp-mcp`, `.mcp.json`) exposing
   `inventory`, `plan`, `migrate` and `verify` to any MCP client, the same way
   the AWS migrator does. Each tool runs the CLI. `publish` and `run` stay
   CLI-only because they change an AIDP workspace. Needs `pip install -e '.[mcp]'`
   (Python 3.10+, `mcp>=1.2,<2`).
+
+### Changed
+- `G15_QUALIFY` is a rewrite, not a block: a subquery filtered on the
+  condition, with the row carried as a struct so `SELECT *` works. Shapes it
+  does not cover stay blocked with the reason.
+- `CLUSTER BY` keys are written unquoted (AIDP's Delta kept the backticks in
+  the column name), and a rerun of `01_structure` reports existing views as
+  `already_existed`.
+- The `.env` loader takes only `GCP_`, `GOOGLE_APPLICATION_CREDENTIALS`,
+  `AIDP_` and `OCI_` keys, and reads the working directory's `.env`, then the
+  plugin folder's.

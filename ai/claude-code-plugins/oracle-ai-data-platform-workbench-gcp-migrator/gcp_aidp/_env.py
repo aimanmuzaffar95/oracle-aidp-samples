@@ -8,11 +8,22 @@ from pathlib import Path
 # Only these keys are taken from a .env (the Fabric migrator's rule): `publish`
 # and `run` start the `aidp` CLI, and a stray PATH= must not choose which one.
 ALLOWED_PREFIXES = ("GCP_", "GOOGLE_APPLICATION_CREDENTIALS", "AIDP_", "OCI_")
+# The plugin folder's .env, read after the working directory's, so the CLI
+# finds it when run from a migration folder elsewhere.
+PLUGIN_ENV = Path(__file__).resolve().parents[1] / ".env"
 
 
 def load_dotenv(path: str | Path | None = None) -> None:
-    """Load allowed KEY=VALUE pairs from .env into os.environ if not already set."""
-    p = Path(path or ".env")
+    """Load allowed KEY=VALUE pairs from .env into os.environ if not already set.
+
+    With no path: the working directory's .env, then the plugin's. The shell
+    wins over both, and the working directory over the plugin.
+    """
+    if path is None:
+        load_dotenv(".env")
+        load_dotenv(PLUGIN_ENV)
+        return
+    p = Path(path)
     if not p.exists():
         return
     for raw in p.read_text().splitlines():

@@ -5,14 +5,16 @@ inventories a Google Cloud data estate centred on BigQuery, plans the mapping to
 AIDP, and (in later milestones) generates reviewable artifacts and copy jobs,
 verifies them, and publishes to AIDP on request.
 
-> **Work in progress (0.1, milestone M5).** `inventory` (live and fixture),
-> `plan`, `migrate` and `verify` are built. Live inventory has been run against
-> a seeded sandbox project (BigQuery only: no billing, so no Cloud Storage,
-> scheduled queries or other services). The data-copy notebooks have run end to
-> end on an AIDP cluster (Spark 3.5.0) against that project: 7 tables copied
-> with matching row counts, 3 views created. `publish` and `run` are built and
-> tested against a fake AIDP client, not yet against a live workspace. Full
-> documentation arrives with M6.
+> **Work in progress (0.1, milestone M6).** `inventory` (live and fixture),
+> `plan`, `migrate`, `verify`, `publish` and `run` are built. Live inventory
+> has been run against a seeded sandbox project (BigQuery only: no billing, so
+> no Cloud Storage, scheduled queries or other services). The data-copy
+> notebooks have run end to end on an AIDP cluster (Spark 3.5.0) against that
+> project: 7 tables copied with matching row counts, 3 views created.
+> `publish --apply` and `run` have been run against a live AIDP workspace: 5
+> notebooks and 2 unscheduled jobs created, and the migration job finished
+> every task. Scheduled-query jobs are tested offline only (the sandbox has
+> none). Full documentation arrives with M6.
 
 ## Quick start (offline, no credentials)
 
@@ -121,6 +123,22 @@ the default `skip-existing` mode leaves a table with rows untouched, and
 
 The rule tables are [`references/type-mapping.md`](references/type-mapping.md)
 and [`references/dialect-translation.md`](references/dialect-translation.md).
+
+## Publishing to AIDP
+
+```bash
+pip install aidp-cli            # provides `aidp`; a venv keeps it apart from oci-cli
+gcp-aidp publish migrated       # dry run: lists what would be created, sends nothing
+gcp-aidp publish migrated --apply
+gcp-aidp run migrated           # starts <prefix>_gcp_aidp_migration and polls it
+```
+
+`publish` uploads the notebooks to `/Workspace/<prefix>/` and creates the jobs
+unscheduled; it never overwrites. Set `AIDP_INSTANCE_ID`, `AIDP_WORKSPACE_KEY`,
+`AIDP_CLUSTER_KEY` and `AIDP_PREFIX` (letters, digits, underscores) in `.env`.
+`aidp-cli` defaults to `security_token` auth, so with an API key in
+`~/.oci/config` also set `AIDP_AUTH=api_key`. The CLI reads `.env` from the
+working directory, then from the plugin folder; the shell overrides both.
 
 ## Tests
 

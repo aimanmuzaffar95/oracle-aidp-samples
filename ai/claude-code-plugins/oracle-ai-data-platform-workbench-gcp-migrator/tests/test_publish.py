@@ -130,6 +130,24 @@ class DotEnv(unittest.TestCase):
             load_dotenv(env)
             self.assertEqual(dict(os.environ), {"AIDP_PREFIX": "ana", "GCP_PROJECT": "p", "OCI_NAMESPACE": "ns"})
 
+    def test_working_directory_env_wins_over_the_plugins(self):
+        import os
+        from unittest import mock
+
+        from gcp_aidp import _env
+        with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as plugin, \
+                mock.patch.dict(os.environ, {}, clear=True), \
+                mock.patch.object(_env, "PLUGIN_ENV", Path(plugin) / ".env"):
+            (Path(cwd) / ".env").write_text("AIDP_PREFIX=here\n")
+            (Path(plugin) / ".env").write_text("AIDP_PREFIX=plugin\nAIDP_AUTH=api_key\n")
+            old = os.getcwd()
+            os.chdir(cwd)
+            try:
+                _env.load_dotenv()
+            finally:
+                os.chdir(old)
+            self.assertEqual(dict(os.environ), {"AIDP_PREFIX": "here", "AIDP_AUTH": "api_key"})
+
 
 if __name__ == "__main__":
     unittest.main()
