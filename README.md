@@ -48,6 +48,7 @@ Foundational examples to help you get up and running on AIDP Workbench.
 | [Analyse Data Using SQL](getting-started/Analyse_Data_Using_SQL.ipynb) | Core SQL operations on AIDP including DataFrame creation, transformations, aggregations, and simple visualizations. |
 | [ALH External Catalog MERGE](getting-started/ALH_ExternalCatalog_Merge.ipynb) | End-to-end MERGE workflow into an ALH table via an AIDP external catalog: insert/update/delete with merge keys and OOS-staging skip optimization. |
 | [Native Apache Iceberg Table](getting-started/Native_Iceberg_Table.ipynb) | Create a native Iceberg table in a Standard catalog, then explore schema and partition evolution, MERGE, snapshots, and time travel. |
+| [Parameterize Notebooks with Native Widgets](getting-started/Native_Notebook_Widgets.ipynb) | Native notebook widgets (text, dropdown, combobox, multiselect), job and `notebook.run` parameter overrides, and a fail-fast check for job parameters a widget silently ignores. |
 
 The native Iceberg sample uses an existing AIDP Standard catalog. The Hadoop catalog sample under Data Engineering registers a separate Spark catalog on OCI Object Storage. Delta UniForm samples create Delta tables that publish Iceberg-compatible metadata.
 
