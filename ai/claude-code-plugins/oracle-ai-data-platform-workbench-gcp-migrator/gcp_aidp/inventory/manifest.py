@@ -25,11 +25,10 @@ def build_manifest(client, sources=ALL_SOURCES, *, regions=("us-central1",),
     defaults to a client with the cloud-platform scope.
     """
     from gcp_aidp.gcp_client import CLOUD_PLATFORM_SCOPE, GcpClient
-    from gcp_aidp.inventory import bigquery, services
+    from gcp_aidp.inventory import bigquery, composer, dataflow, dataform, dataproc, gcs, vertex
 
-    scanners = {"bigquery": bigquery.scan, "gcs": services.scan_gcs, "dataproc": services.scan_dataproc,
-                "composer": services.scan_composer, "dataform": services.scan_dataform,
-                "dataflow": services.scan_dataflow, "vertex": services.scan_vertex}
+    scanners = {"bigquery": bigquery.scan, "gcs": gcs.scan, "dataproc": dataproc.scan, "composer": composer.scan,
+                "dataform": dataform.scan, "dataflow": dataflow.scan, "vertex": vertex.scan}
     data = {}
     for source in sources:
         if source in BROAD_SCOPE_SOURCES and not scan_services:

@@ -92,6 +92,9 @@ All notable changes to this project are documented here. Format loosely follows
   `AIDP_` and `OCI_` keys, and reads the working directory's `.env`, then the
   plugin folder's.
 - `references/dialect-translation.md` lists `G97_LEGACY_SQL`.
+- Inventory has one module per service (`inventory/gcs.py`, `dataproc.py`, `composer.py`,
+  `dataform.py`, `dataflow.py`, `vertex.py`) instead of one `services.py`; behaviour is
+  unchanged.
 
 ### Fixed
 - `G19_CAST_TYPE` rewrote words after a nested CAST's `AS`: in
