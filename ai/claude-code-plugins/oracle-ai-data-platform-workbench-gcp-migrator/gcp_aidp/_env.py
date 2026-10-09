@@ -35,7 +35,9 @@ def load_dotenv(path: str | Path | None = None) -> None:
         k, _, v = line.partition("=")
         k = k.strip()
         v = v.strip().strip('"').strip("'")
-        if k.startswith(ALLOWED_PREFIXES) and k not in os.environ:
+        # `KEY=` (as .env.example ships it) means unset: exported as "", the OCI SDK would
+        # look for a profile named ''.
+        if k.startswith(ALLOWED_PREFIXES) and v and k not in os.environ:
             os.environ[k] = v
 
 

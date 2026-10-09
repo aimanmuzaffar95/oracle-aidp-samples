@@ -100,6 +100,10 @@ All notable changes to this project are documented here. Format loosely follows
   unchanged.
 
 ### Fixed
+- An empty `.env` line such as `OCI_CLI_PROFILE=` (as `.env.example` ships it) was exported
+  as an empty value, and `aidp-cli` then looked for an OCI profile named `''` and crashed:
+  `publish --apply` and `run` failed for anyone who had copied the example. An empty value
+  now means unset.
 - `G19_CAST_TYPE` rewrote words after a nested CAST's `AS`: in
   `CAST(COALESCE(CAST(x AS STRING), bytes) AS STRING)` the column `bytes` became
   `BINARY`, reported clean. A CAST now rewrites only the type after its own

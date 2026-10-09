@@ -130,6 +130,18 @@ class DotEnv(unittest.TestCase):
             load_dotenv(env)
             self.assertEqual(dict(os.environ), {"AIDP_PREFIX": "ana", "GCP_PROJECT": "p", "OCI_NAMESPACE": "ns"})
 
+    def test_an_empty_value_means_unset(self):
+        # .env.example ships `OCI_CLI_PROFILE=`: exported as "", aidp-cli looks for a profile named ''
+        import os
+        from unittest import mock
+
+        from gcp_aidp._env import load_dotenv
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {}, clear=True):
+            env = Path(d) / ".env"
+            env.write_text("OCI_CLI_PROFILE=\nAIDP_AUTH=api_key\nAIDP_PREFIX=''\n")
+            load_dotenv(env)
+            self.assertEqual(dict(os.environ), {"AIDP_AUTH": "api_key"})
+
     def test_working_directory_env_wins_over_the_plugins(self):
         import os
         from unittest import mock
