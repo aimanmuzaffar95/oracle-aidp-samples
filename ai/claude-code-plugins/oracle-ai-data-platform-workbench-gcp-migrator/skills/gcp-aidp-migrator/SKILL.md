@@ -90,7 +90,9 @@ gcp-aidp run       migrated                               # runs the published m
 
 Reported, not translated: procedures, JavaScript and table functions, BigQuery ML
 models, row access policies and policy tags. Skipped in 0.1: BigQuery Studio notebooks
-and Dataproc (0.2), Composer and Dataform (0.3), Dataflow and Vertex AI (later).
+and Dataproc (0.2), Dataflow and Vertex AI (later). Dataform repositories migrate as one
+unscheduled job each (`references/dataform-translation.md`), and so does each Composer DAG
+file (`references/airflow-translation.md`).
 
 ## Reporting results
 

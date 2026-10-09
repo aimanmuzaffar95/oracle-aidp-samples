@@ -27,7 +27,10 @@ optional layers on top of it that guide the workflow and help with setup and rev
 | External table | → | `USING PARQUET/AVRO/ORC/CSV/JSON` over `oci://` |
 | Cloud Storage bucket | → | an rclone transfer job to OCI Object Storage |
 | Procedures, JavaScript and table functions, BigQuery ML, access policies | → | reported with an effort band, not translated |
-| BigQuery Studio notebooks, Dataproc, Composer, Dataform, Dataflow, Vertex AI | → | inventoried, planned for a later version |
+| Dataform repository | → | one unscheduled AIDP job, a task per compiled action, with Dataform's dependencies as `dependsOn`; tables, views and assertions only, see `references/dataform-translation.md` |
+| Composer DAG file | → | one unscheduled AIDP job, a task per Airflow task, with upstream tasks as `dependsOn`; BigQuery query tasks and empty tasks only, see `references/airflow-translation.md` |
+| Composer environment | → | reported; Airflow itself is not migrated |
+| BigQuery Studio notebooks, Dataproc, Dataflow, Vertex AI | → | inventoried, planned for a later version |
 
 ## Status (0.1)
 
@@ -279,7 +282,7 @@ Every asset gets a plan row with one of three actions:
 |---|---|
 | `MIGRATE` | migrated in this version |
 | `REPORT` | inventoried and reported with an effort band; not translated (procedures, JavaScript and table functions, BigQuery ML models, access rules) |
-| `SKIP` | planned for a later version, with the reason (notebooks and Dataproc in 0.2, Composer and Dataform in 0.3, Dataflow and Vertex AI later), or outside `--datasets` |
+| `SKIP` | planned for a later version, with the reason (notebooks and Dataproc in 0.2, Dataflow and Vertex AI later), or outside `--datasets`, `--dataform-repos` or `--dags` |
 
 **What you choose at `plan`:** the target catalog (`--catalog`, default: the project
 id), the OCI namespace for buckets (`--namespace`), the datasets to migrate
@@ -290,6 +293,11 @@ assets stay in the plan as `SKIP`, so the approval document still shows the whol
 estate, and its first lines say which datasets are in scope. A view that reads a
 table in an excluded dataset is flagged. Tables within a dataset are not chosen
 here: the copy notebook takes a `tables` parameter for a partial run.
+
+`--dags a,b` does the same for Composer DAGs, matched by DAG file name in any
+environment. The inventory reads each DAG file as text and never runs it, so the
+inventory file then contains DAG source code and the plan carries it too. Treat both
+as sensitive and do not commit them.
 
 Two assets that would land on the same target name (compared case-insensitively,
 as Spark does) halt the plan. The planner does not pick a winner.
@@ -494,5 +502,5 @@ migration is decided with 0.2's results.
 
 - 0.2: BigQuery Studio notebooks and Dataproc (clusters, jobs).
   Under consideration: a live execute-check-fix pass for the migrated code.
-- 0.3: Composer (Airflow DAGs → AIDP workflows), Dataform and BigQuery pipelines.
+- 0.3: Composer (Airflow DAGs → unscheduled AIDP jobs) and Dataform are built; BigQuery pipelines are next.
 - Later: Dataflow and Vertex AI.

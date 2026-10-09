@@ -22,12 +22,19 @@ gcp-aidp inventory [--project ID] [--sources bigquery,gcs,...] [--regions us-cen
 ## plan: manifest → plan + approval document
 ```
 gcp-aidp plan <inv.json> [-o plan.json] [--catalog NAME] [--namespace OCI_NS]
-              [--datasets a,b] [--bignumeric block|string] [--geography block|wkt]
+              [--datasets a,b] [--dataform-repos a,b] [--dags a,b] [--bignumeric block|string] [--geography block|wkt]
 ```
 - Writes `plan.json` and `plan.md` beside it. Actions: `MIGRATE`, `REPORT`, `SKIP`.
 - `--datasets`: migrate only these BigQuery datasets (default: all). The others'
   assets stay in the plan as `SKIP` ("outside --datasets"); a name the inventory
   does not hold fails the plan.
+- `--dataform-repos`: migrate only these Dataform repositories (default: all). The
+  others stay in the plan as `SKIP` ("outside --dataform-repos"); an unknown name
+  fails the plan.
+- `--dags`: migrate only these Composer DAGs, by DAG file name in any environment
+  (default: all). The others stay in the plan as `SKIP` ("outside --dags"); an
+  unknown name fails the plan. DAG files are read as text and never run, so the
+  inventory and the plan contain DAG source code: do not commit them.
 - `--catalog`: target INTERNAL catalog (default: the project id, made a valid name).
 - `--namespace`: OCI namespace for target buckets (default `$OCI_NAMESPACE`).
 - `--bignumeric string` / `--geography wkt`: carry those columns as text instead of

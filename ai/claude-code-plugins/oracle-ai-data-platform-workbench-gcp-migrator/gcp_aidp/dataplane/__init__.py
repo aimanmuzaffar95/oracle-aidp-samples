@@ -181,14 +181,33 @@ def sql_notebook(title: str, statements: list[str], plan_id: str) -> dict:
                          "language_info": {"name": "python"}}}
 
 
+def assertion_notebook(title: str, query: str, plan_id: str) -> dict:
+    """A notebook that runs an assertion's query and fails the task if it returns a row."""
+    nb = sql_notebook(title, [], plan_id)
+    nb["cells"].append(_cell("code", f"rows = spark.sql({json.dumps(query)}).limit(1).collect()\n"
+                                     "if rows:\n"
+                                     "    raise RuntimeError(f'assertion failed: the query returned a row, e.g. {rows[0]}')\n"
+                                     "print('assertion passed: no rows')"))
+    return nb
+
+
+def noop_notebook(title: str, plan_id: str) -> dict:
+    """A notebook that does nothing: the task behind an empty Airflow operator."""
+    nb = sql_notebook(title, [], plan_id)
+    nb["cells"].append(_cell("code", "print('no-op task: nothing to run')"))
+    return nb
+
+
 def write_jobs(dp: dict, results: list[dict], out_dir: Path) -> list[dict]:
     """The AIDP jobs `publish` creates, unscheduled, with their task notebooks written here.
 
     `gcp_aidp_migration` chains the data-plane notebooks so `gcp-aidp run` can
     start the whole copy at once: diagnose, structure, one copy task per
     dataset, each materialized view's snapshot, reconcile. Each materialized
-    view and scheduled query also gets a job of its own. Notebook paths are
-    relative to `out_dir`; `publish` maps them to the workspace.
+    view and scheduled query also gets a job of its own, and so does each
+    Dataform repository and Composer DAG: a result whose job carries `tasks` (taskKey,
+    statements, assertion, noop, dependsOn) gets one notebook per task. Notebook
+    paths are relative to `out_dir`; `publish` maps them to the workspace.
     """
     from gcp_aidp._atomic import write_text_atomic
     from gcp_aidp.plan.planner import job_name
@@ -201,6 +220,20 @@ def write_jobs(dp: dict, results: list[dict], out_dir: Path) -> list[dict]:
     for r in results:
         job = r.get("job")
         if not job or r.get("status") not in ("ok", "needs_manual_review"):
+            continue
+        if "tasks" in job:
+            tasks = []
+            for t in job["tasks"]:
+                rel = f"notebooks/jobs/{job['name']}__{t['taskKey']}.ipynb"
+                if t.get("noop"):
+                    nb = noop_notebook(t["title"], dp["plan_id"])
+                elif t.get("assertion"):
+                    nb = assertion_notebook(t["title"], t["statements"][0], dp["plan_id"])
+                else:
+                    nb = sql_notebook(t["title"], t["statements"], dp["plan_id"])
+                write_text_atomic(out_dir / rel, json.dumps(nb, indent=1) + "\n")
+                tasks.append({**task(t["taskKey"], rel), **({"dependsOn": list(t["dependsOn"])} if t.get("dependsOn") else {})})
+            own.append({"name": job["name"], "description": job["title"], "tasks": tasks})
             continue
         rel = f"notebooks/jobs/{job['name']}.ipynb"
         write_text_atomic(out_dir / rel, json.dumps(sql_notebook(job["title"], job["statements"], dp["plan_id"]),

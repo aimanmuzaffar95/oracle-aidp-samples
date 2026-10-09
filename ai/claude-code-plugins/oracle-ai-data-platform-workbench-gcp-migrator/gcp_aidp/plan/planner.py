@@ -21,6 +21,7 @@ from pathlib import Path
 
 from gcp_aidp._atomic import write_text_atomic
 from gcp_aidp.inventory.manifest import ALL_SOURCES
+from gcp_aidp.translate.dataform import schedule_text
 from gcp_aidp.translate.ddl import table_layout
 from gcp_aidp.translate.types import map_column
 
@@ -288,9 +289,6 @@ def _later(source: str, it: dict[str, list[dict]]) -> list[dict]:
     spec = {  # collection: (source type, target type, version, kind, id field, name field)
         "dataproc": {"clusters": ("dataproc_cluster", "aidp_spark_cluster", "0.2", "setup", "name", "name"),
                      "jobs": ("dataproc_job", "aidp_job", "0.2", "code+setup", "id", "id")},
-        "composer": {"environments": ("composer_environment", "aidp_workflow", "0.3", "setup", "name", "name"),
-                     "dags": ("composer_dag", "aidp_workflow", "0.3", "code+setup", "dag_id", "dag_id")},
-        "dataform": {"repositories": ("dataform_repository", "aidp_job", "0.3", "code", "name", "name")},
         "dataflow": {"jobs": ("dataflow_job", "none", "later", "code", "id", "name")},
         "vertex": {"models": ("vertex_model", "none", "later", "code", "id", "name"),
                    "endpoints": ("vertex_endpoint", "none", "later", "code", "id", "name"),
@@ -299,9 +297,44 @@ def _later(source: str, it: dict[str, list[dict]]) -> list[dict]:
     out = []
     for collection, (stype, ttype, version, kind, id_f, name_f) in spec.items():
         for row in it[collection]:
-            prefix = f"{row['environment']}." if collection == "dags" else ""
-            out.append(_skip(f"{source}.{collection[:-1]}.{prefix}{row[id_f]}", kind, version,
+            out.append(_skip(f"{source}.{collection[:-1]}.{row[id_f]}", kind, version,
                              {**row, "type": stype}, ttype, row[name_f]))
+    return out
+
+
+def _dataform(it: dict[str, list[dict]]) -> list[dict]:
+    """One job per repository; its schedules are recorded in the notes and never applied."""
+    out = []
+    for r in it["repositories"]:
+        notes = [f"source schedule: {schedule_text(r)}; recorded in the job description, not applied: "
+                 "the job is created unscheduled",
+                 f"{len(r.get('actions') or [])} compiled action(s), one task each"]
+        if r.get("actions_not_scanned"):
+            notes.append(f"actions not scanned: {r['actions_not_scanned']}")
+        out.append(_row(f"dataform.repository.{r['name']}", "code", "0.3", MIGRATE,
+                        {**r, "type": "dataform_repository"},
+                        {"type": "aidp_job", "name": job_name(f"dataform_{r['name']}")},
+                        chain=["dataform_compiled_actions", "googlesql_to_spark", "create_job_unscheduled"],
+                        notes=notes))
+    return out
+
+
+def _composer(it: dict[str, list[dict]]) -> list[dict]:
+    """Environments are reported; each DAG file is one job, its schedule recorded and never applied."""
+    out = []
+    for e in it["environments"]:
+        out.append(_row(f"composer.environment.{e['name']}", "setup", "0.3", REPORT,
+                        {**e, "type": "composer_environment"}, {"type": "report"},
+                        reason="Airflow itself is not migrated; its DAGs are", effort="S"))
+    for d in it["dags"]:
+        notes = ["the DAG file is read as text and never run; no job is created if anything in it is flagged",
+                 "source schedule is recorded in the job description, not applied: the job is created unscheduled"]
+        if d.get("code_not_scanned"):
+            notes.append(f"file not scanned: {d['code_not_scanned']}")
+        out.append(_row(f"composer.dag.{d['environment']}.{d['dag_id']}", "code+setup", "0.3", MIGRATE,
+                        {**d, "type": "composer_dag"},
+                        {"type": "aidp_job", "name": job_name(f"composer_{d['environment']}_{d['dag_id']}")},
+                        chain=["parse_dag_ast", "googlesql_to_spark", "create_job_unscheduled"], notes=notes))
     return out
 
 
@@ -355,10 +388,41 @@ def _scope_to_datasets(assets: list[dict], items: dict, datasets: list[str]) -> 
     return sorted(set(datasets))
 
 
+def _scope_to_dataform_repos(assets: list[dict], items: dict, repos: list[str]) -> list[str]:
+    """--dataform-repos: the other repositories become SKIP. A name the inventory does not hold fails closed."""
+    known = {r["name"] for r in items.get("dataform", {}).get("repositories", [])}
+    unknown = sorted(set(repos) - known)
+    if unknown:
+        raise ValueError(f"--dataform-repos not in the inventory: {', '.join(unknown)}; "
+                         f"its repositories are: {', '.join(sorted(known)) or 'none'}")
+    for a in assets:
+        src = a["source"]
+        if src["type"] == "dataform_repository" and src["name"] not in repos and a["action"] != SKIP:
+            a.update(action=SKIP, transform_chain=[], reason=f"repository {src['name']} is outside --dataform-repos")
+    return sorted(set(repos))
+
+
+def _scope_to_dags(assets: list[dict], items: dict, dags: list[str]) -> list[str]:
+    """--dags: the other DAGs become SKIP. A name the inventory does not hold fails closed."""
+    known = {d["dag_id"] for d in items.get("composer", {}).get("dags", [])}
+    unknown = sorted(set(dags) - known)
+    if unknown:
+        raise ValueError(f"--dags not in the inventory: {', '.join(unknown)}; "
+                         f"its DAGs are: {', '.join(sorted(known)) or 'none'}")
+    for a in assets:
+        src = a["source"]
+        if src["type"] == "composer_dag" and src["dag_id"] not in dags and a["action"] != SKIP:
+            a.update(action=SKIP, transform_chain=[], reason=f"DAG {src['dag_id']} is outside --dags")
+    return sorted(set(dags))
+
+
 def build_plan(manifest: dict, *, oci_namespace: str = OCI_NAMESPACE_DEFAULT,
                catalog: str | None = None, bignumeric: str = "block", geography: str = "block",
-               datasets: list[str] | None = None) -> dict:
-    """`datasets`: migrate only these BigQuery datasets (None: every dataset)."""
+               datasets: list[str] | None = None, dataform_repos: list[str] | None = None,
+               dags: list[str] | None = None) -> dict:
+    """`datasets`: migrate only these BigQuery datasets (None: every dataset).
+    `dataform_repos`: migrate only these Dataform repositories (None: every repository).
+    `dags`: migrate only the Composer DAGs with these ids, in any environment (None: every DAG)."""
     if bignumeric not in ("block", "string") or geography not in ("block", "wkt"):
         raise ValueError("bignumeric must be block|string and geography block|wkt")
     mapping = {"bignumeric": bignumeric, "geography": geography}
@@ -375,11 +439,19 @@ def build_plan(manifest: dict, *, oci_namespace: str = OCI_NAMESPACE_DEFAULT,
             assets += _bigquery(items[source], catalog, mapping)
         elif source == "gcs":
             assets += _gcs(items[source], oci_namespace)
+        elif source == "dataform":
+            assets += _dataform(items[source])
+        elif source == "composer":
+            assets += _composer(items[source])
         else:
             assets += _later(source, items[source])
 
     if datasets is not None:
         datasets = _scope_to_datasets(assets, items, datasets)
+    if dataform_repos is not None:
+        dataform_repos = _scope_to_dataform_repos(assets, items, dataform_repos)
+    if dags is not None:
+        dags = _scope_to_dags(assets, items, dags)
     dupes = sorted(i for i, n in Counter(a["id"] for a in assets).items() if n > 1)
     if dupes:
         raise ValueError("duplicate asset id(s) in manifest: " + ", ".join(dupes))
@@ -399,7 +471,11 @@ def build_plan(manifest: dict, *, oci_namespace: str = OCI_NAMESPACE_DEFAULT,
         "scan_errors": scan_errors,
         "target": {"catalog": catalog, "catalog_type": "INTERNAL", "oci_namespace": oci_namespace},
         "scope": {"datasets": datasets,
-                  "inventoried": sorted(d["name"] for d in items.get("bigquery", {}).get("datasets", []))},
+                  "inventoried": sorted(d["name"] for d in items.get("bigquery", {}).get("datasets", [])),
+                  "dataform_repos": dataform_repos,
+                  "dataform_inventoried": sorted(r["name"] for r in items.get("dataform", {}).get("repositories", [])),
+                  "dags": dags,
+                  "dags_inventoried": sorted({d["dag_id"] for d in items.get("composer", {}).get("dags", [])})},
         "type_modes": mapping,
         "summary": {"asset_count": len(assets), "by_action": by_action},
         "assets": assets,
@@ -424,9 +500,23 @@ def _scope_line(plan: dict) -> str:
     scope = plan.get("scope") or {}
     total = len(scope.get("inventoried") or [])
     if scope.get("datasets") is None:
-        return f"Datasets: all {total}"
-    chosen = scope["datasets"]
-    return f"Datasets: {', '.join(chosen)} ({len(chosen)} of {total}; the rest are SKIP)"
+        line = f"Datasets: all {total}"
+    else:
+        chosen = scope["datasets"]
+        line = f"Datasets: {', '.join(chosen)} ({len(chosen)} of {total}; the rest are SKIP)"
+    repos = scope.get("dataform_inventoried") or []
+    if scope.get("dataform_repos") is not None:
+        chosen = scope["dataform_repos"]
+        line += f"; Dataform repositories: {', '.join(chosen) or 'none'} ({len(chosen)} of {len(repos)}; the rest are SKIP)"
+    elif repos:
+        line += f"; Dataform repositories: all {len(repos)}"
+    dags = scope.get("dags_inventoried") or []
+    if scope.get("dags") is not None:
+        chosen = scope["dags"]
+        line += f"; Composer DAGs: {', '.join(chosen) or 'none'} ({len(chosen)} of {len(dags)}; the rest are SKIP)"
+    elif dags:
+        line += f"; Composer DAGs: all {len(dags)}"
+    return line
 
 
 def summarize_plan(plan: dict) -> str:

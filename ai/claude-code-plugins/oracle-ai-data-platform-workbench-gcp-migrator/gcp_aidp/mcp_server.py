@@ -92,6 +92,8 @@ def plan(
     namespace: Optional[str] = None,
     catalog: Optional[str] = None,
     datasets: Optional[str] = None,
+    dataform_repos: Optional[str] = None,
+    dags: Optional[str] = None,
     bignumeric: str = "block",
     geography: str = "block",
 ) -> str:
@@ -104,6 +106,10 @@ def plan(
         catalog: target AIDP catalog (default: the project id, made a valid name).
         datasets: comma-separated BigQuery datasets to migrate (default: all); the
             others stay in the plan as SKIP.
+        dataform_repos: comma-separated Dataform repositories to migrate (default: all);
+            the others stay in the plan as SKIP.
+        dags: comma-separated Composer DAG ids to migrate (default: all); the others
+            stay in the plan as SKIP.
         bignumeric: BIGNUMERIC columns: "block" the table or carry exact decimal "string".
         geography: GEOGRAPHY columns: "block" the table or carry "wkt" text.
     """
@@ -114,6 +120,10 @@ def plan(
         args += ["--catalog", catalog]
     if datasets:
         args += ["--datasets", datasets]
+    if dataform_repos:
+        args += ["--dataform-repos", dataform_repos]
+    if dags:
+        args += ["--dags", dags]
     return _run(args)
 
 

@@ -33,9 +33,9 @@ EXPECTED = {
     "bq_notebook": ("SKIP", "0.2"),
     "dataproc_cluster": ("SKIP", "0.2"),
     "dataproc_job": ("SKIP", "0.2"),
-    "composer_environment": ("SKIP", "0.3"),
-    "composer_dag": ("SKIP", "0.3"),
-    "dataform_repository": ("SKIP", "0.3"),
+    "composer_environment": ("REPORT", "0.3"),
+    "composer_dag": ("MIGRATE", "0.3"),
+    "dataform_repository": ("MIGRATE", "0.3"),
     "bq_pipeline": ("SKIP", "0.3"),
     "dataflow_job": ("SKIP", "later"),
     "vertex_model": ("SKIP", "later"),
@@ -157,7 +157,9 @@ class FailClosed(unittest.TestCase):
     def test_scan_error_is_carried_into_the_plan(self):
         m = copy.deepcopy(DEMO)
         m["sources"]["gcs"] = {"summary": {"error": "403 storage.buckets.list"}, "items": {}}
-        self.assertEqual(build_plan(m)["scan_errors"], {"gcs": "403 storage.buckets.list"})
+        errors = build_plan(m)["scan_errors"]
+        self.assertEqual(errors["gcs"], "403 storage.buckets.list")
+        self.assertEqual(sorted(errors), ["composer.code of northwind-orchestration/dags/ml_feature_refresh.py", "gcs"])
 
     def test_bucket_name_that_is_not_a_gcs_name_fails_closed(self):
         # The name goes into a shell script (the rclone transfer job).
